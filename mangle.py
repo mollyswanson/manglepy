@@ -1,12 +1,14 @@
 #!/usr/bin/env python
-# Python class to implement some basic Mangle routines
-# to handle caps etc.
-# Stand-alone python, no non-standard Python modules required.
-#
-# The single element versions of this are fairly slow when looping over
-# a large data set, but the get_polyids/get_areas functions are within
-# a factor of two of the speed of the commandline code.
-#
+"""
+Python class to implement some basic Mangle routines
+to handle caps etc.
+
+The single element versions of this are fairly slow when looping over
+a large data set, but the get_polyids/get_areas functions are within
+a factor of two of the speed of the commandline code.
+
+Requires numpy, and pyfits > 2.3.1 for loading fits files.
+"""
 # Author:		Martin White	(UCB)
 # Written		17-Mar-2010
 # Modified:		17-Mar-2010	(Basic bug fixes)
@@ -43,9 +45,9 @@ class Mangle:
     have their polygons found.
     """
 
-    __author__ = "Martin White"
-    __version__ = "1.0"
-    __email__  = "mwhite@berkeley.edu"
+    __author__ = "John Parejko & Martin White"
+    __version__ = "2.0"
+    __email__  = "john.parejko@yale.edu"
 
     def incap_spam(self,cap,x0,y0,z0):
         """
@@ -241,6 +243,39 @@ class Mangle:
                   (cap[0],cap[1],cap[2],cap[3]))
         ff.close()
 
+    def __getitem__(self,idx):
+        """Return an ndarray containing the nonzero attributes[idx]."""
+        import numpy.core.records as rec
+        names = ['polyid','area','weight','ncap','cap']
+        types = [self.polyids.dtype.str,self.areas.dtype.str,self.weights.dtype.str,self.ncaps.dtype.str,self.polylist.dtype.str]
+        temp = [self.polyids[idx],self.areas[idx],self.weights[idx],self.ncaps[idx],self.polylist[idx]]
+        if 'sector' in dir(self) and self.sector != []:
+            names.append('sector')
+            types.append(self.sector.dtype.str)
+            temp.append(self.sector[idx])
+        if 'mmax' in dir(self) and self.mmax != []:
+            names.append('mmax')
+            types.append(self.mmax.dtype.str)
+            temp.append(self.mmaxr[idx])
+        if 'fgotmain' in dir(self) and self.fgotmain != []:
+            names.append('fgotmain')
+            types.append(self.fgotmain.dtype.str)
+            temp.append(self.fgotmain[idx])
+        # Have to handle things differently if we are accessing only one item
+        # because rec.array doesn't work if the list elements are length 1.
+        if type(idx) == int:
+            result = rec.recarray(shape=2,formats=types,names=names)
+            for i in range(len(temp)):
+                # NOTE: BROKEN! This doesn't work correctly for some reason
+                # for items beyond temp[0].  I don't know why, but 
+                # the recarray gets assigned nonsensical values.
+                result[0][i] = temp[i]
+            result = result[0]
+        else:
+            result = rec.array(temp,formats=types,names=names)
+        return result
+    #...
+
     def graphics(self):
         """Return an array of edge points that can be used to plot
         these polygons.
@@ -256,7 +291,7 @@ class Mangle:
         tempIn = tempfile.NamedTemporaryFile('rw+b')
         self.writeply(tempIn.name)
         tempOut = tempfile.NamedTemporaryFile('rw+b')
-        call = ' '.join(('poly2poly -ol30',tempIn.name,tempOut.name))
+        call = ' '.join(('poly2poly -q -ol30',tempIn.name,tempOut.name))
         subprocess.call(call,shell=True)
         # NOTE: poly2poly -ol always outputs a separate weight file.
         os.remove(tempOut.name+'.weight')
