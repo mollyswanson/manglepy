@@ -1,7 +1,6 @@
-#!/usr/bin/env python
-"""
-Python class to implement some basic Mangle routines
-to handle caps etc.
+# mangle.py
+"""Python class to implement some basic Mangle routines for identifying the
+polygon(s) that point(s) are in, and their areas, etc.
 
 The single element versions of this are fairly slow when looping over
 a large data set, but the get_polyids/get_areas functions are within
@@ -20,10 +19,12 @@ Requires numpy, and pyfits > 2.3.1 for loading fits files.
 #        29-Jun-2010 jkp: (numpy vectorized polyid for >10x speed improvement.)
 #        22-Jul-2010 jkp: (completed and tested numpy version. Speed is ~1/2 that of the commandline mangle)
 #        10-Aug-2010 jkp: (Added resorting of out-of-order polygons and altered original polylist structure)
+#        10-Oct-2010 jkp: (Added __getitem__, returning a new Mangle instance given an index)
 
 import os
 import re
 import string
+import copy
 
 import numpy as np
 # some of these will need to be called often, so explicitly name them
@@ -244,36 +245,28 @@ class Mangle:
         ff.close()
 
     def __getitem__(self,idx):
-        """Return an ndarray containing the nonzero attributes[idx]."""
-        import numpy.core.records as rec
-        names = ['polyid','area','weight','ncap','cap']
-        types = [self.polyids.dtype.str,self.areas.dtype.str,self.weights.dtype.str,self.ncaps.dtype.str,self.polylist.dtype.str]
-        temp = [self.polyids[idx],self.areas[idx],self.weights[idx],self.ncaps[idx],self.polylist[idx]]
-        if 'sector' in dir(self) and self.sector != []:
-            names.append('sector')
-            types.append(self.sector.dtype.str)
-            temp.append(self.sector[idx])
-        if 'mmax' in dir(self) and self.mmax != []:
-            names.append('mmax')
-            types.append(self.mmax.dtype.str)
-            temp.append(self.mmaxr[idx])
-        if 'fgotmain' in dir(self) and self.fgotmain != []:
-            names.append('fgotmain')
-            types.append(self.fgotmain.dtype.str)
-            temp.append(self.fgotmain[idx])
-        # Have to handle things differently if we are accessing only one item
-        # because rec.array doesn't work if the list elements are length 1.
-        if type(idx) == int:
-            result = rec.recarray(shape=2,formats=types,names=names)
-            for i in range(len(temp)):
-                # NOTE: BROKEN! This doesn't work correctly for some reason
-                # for items beyond temp[0].  I don't know why, but 
-                # the recarray gets assigned nonsensical values.
-                result[0][i] = temp[i]
-            result = result[0]
-        else:
-            result = rec.array(temp,formats=types,names=names)
-        return result
+        """Return a mangle instance containing only those polygons
+        referenced in idx. """
+        mng2=copy.deepcopy(self)
+        mng2.polyids = self.polyids[idx]
+        # slices also have no len(), so we need to test after indexing
+        try:
+            mng2.npolys = len(mng2.polyids)
+        except TypeError:
+            idx = [idx,]
+            mng2.polyids = self.polyids[idx]
+            mng2.npolyds = len(mng2.polyids)
+        mng2.polylist = mng2.polylist[idx]
+        mng2.areas = mng2.areas[idx]
+        mng2.weights = mng2.weights[idx]
+        mng2.ncaps = mng2.ncaps[idx]
+        if 'sector' in dir(mng2) and mng2.sector != []:
+            mng2.sector = mng2.sector[idx]
+        if 'mmax' in dir(mng2) and mng2.mmax != []:
+            mng2.mmax = mng2.mmax[idx]
+        if 'fgotmain' in dir(mng2) and mng2.fgotmain != []:
+            mng2.fgotmain = mng2.fgotmain[idx]
+        return mng2
     #...
 
     def graphics(self):
