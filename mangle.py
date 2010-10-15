@@ -113,6 +113,19 @@ class Mangle:
         # NOTE: the below doesn't work, but I think it should.
         #return all((self.incap_vec(x,x0,y0,z0) for x in polygon[3]),axis=1)
     #...
+    
+    def which_pixel(self,ra,dec):
+        """Return the pixel numbers for a list of ra/dec
+        The pixelization information is , given pixelization
+        resolution res and scheme 's' or 'd'.
+        !!! NOTE: only scheme 's' is currently implemented"""
+        if self.pixelization == None:
+            raise TypeError('No pixelization defined in this mangle instance.')
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ### TBD!!!
+        ### Math for this comes from which_pixel in the mangle2.2/src directory
+        return None
+    #...        
 
     def get_polyids(self,ra,dec):
         """
@@ -127,9 +140,17 @@ class Mangle:
         y0 = sintheta*sin(phi)
         z0 = cos(theta)
         goodpolys = -ones(len(ra),dtype=int)
-        for i,poly in zip(self.polyids,self.polylist):
-            test = self.inpoly_vec(poly,x0,y0,z0)
-            goodpolys[test] = i
+        # If we have a pixelized mask, we can reduce the number of polygons 
+        # we have to check for each object.
+        if self.npixels > 0:
+            for pix in self.pixels:
+                pixels = which_pixel(ra,dec)
+            # TBD: This needs to be finished!
+            return None
+        else:
+            for i,poly in zip(self.polyids,self.polylist):
+                test = self.inpoly_vec(poly,x0,y0,z0)
+                goodpolys[test] = i
         return goodpolys
     #...
 
@@ -260,6 +281,7 @@ class Mangle:
         mng2.areas = mng2.areas[idx]
         mng2.weights = mng2.weights[idx]
         mng2.ncaps = mng2.ncaps[idx]
+        mng2.pixels = mng2.pixels[idx]
         if 'sector' in dir(mng2) and mng2.sector != []:
             mng2.sector = mng2.sector[idx]
         if 'mmax' in dir(mng2) and mng2.mmax != []:
@@ -310,9 +332,11 @@ class Mangle:
         """Read in polygons from a .ply file."""
         # It's useful to pre-compile a regular expression for a mangle line
         # defining a polygon.
-        ex1 = re.compile(r"polygon\s+(\d+)\s+\(\s*(\d+)\s+caps")
-        ex2 = re.compile(r"(\d*\.?\d+)\s+weight")
-        ex3 = re.compile(r"(\d*\.?\d+)\s+str")
+        rePoly = re.compile(r"polygon\s+(\d+)\s+\(\s*(\d+)\s+caps")
+        rePixelization = re.compile(r"pixelization\s+(\d+)([sd])")
+        reWeight = re.compile(r"(\d*\.?\d+)\s+weight")
+        reArea = re.compile(r"(\d*\.?\d+)\s+str")
+        rePixel = re.compile(r"(\d*)\s+pixel")
         #
         ff = open(fn,"r")
         self.npoly = 0
@@ -324,35 +348,50 @@ class Mangle:
             self.npoly = int( ss.group(1) )
         self.polylist = empty(self.npoly,dtype='object')
 
-        ss = ex1.match(line)
         self.polyids = zeros(self.npoly,dtype=int)
         self.areas = -ones(self.npoly)
         self.weights = zeros(self.npoly)
         self.ncaps = zeros(self.npoly)
+        self.pixels = zeros(self.npoly,dtype=int)
         counter = 0
+        # Pixelization information should be on the next line
+        line = ff.readline()
+        ss = rePixelization.match(line)
+        if ss != None:
+            self.pixelization = (int(ss.group(1)),ss.group(2))
+        else:
+            self.pixelization = None
+        ss = rePoly.match(line)
         while len(line)>0:
             while (ss==None)&(len(line)>0):
                 line = ff.readline()
-                ss   = ex1.match(line)
+                ss   = rePoly.match(line)
             if len(line)>0:
                 ipoly= int(ss.group(1))
                 ncap = int(ss.group(2))
                 # Check to see if we have a weight.
-                ss = ex2.search(line)
+                ss = reWeight.search(line)
                 if ss==None:
                     weight=0.0
                 else:
                     weight=float(ss.group(1))
                 # Check to see if we have an area.
-                ss = ex3.search(line)
+                ss = reArea.search(line)
                 if ss==None:
                     area= -1.0
                 else:
                     area=float(ss.group(1))
+                # Check to see if we have a pixel number.
+                ss = rePixel.search(line)
+                if ss==None:
+                    pixel = 0
+                else:
+                    pixel=float(ss.group(1))
                 self.polyids[counter] = ipoly
                 self.areas[counter] = area
                 self.weights[counter] = weight
                 self.ncaps[counter] = ncap
+                self.pixels[counter] = pixel
                 # NOTE: Looping over a numpy array appears to be slower
                 # than a python list, using a numpy array for polylist slows
                 # down polyid(),area(),etc. by ~2x.  But it makes
@@ -364,6 +403,7 @@ class Mangle:
                     self.polylist[counter][i] = cap
                 ss=None
                 counter += 1
+        self.npixels = len(set(self.pixels))
         ff.close()
     #...
 
@@ -385,13 +425,18 @@ class Mangle:
             self.weights = data['WEIGHT']
         else:
             self.weights = zeros(self.npoly)
+        if 'PIXEL' in names:
+            self.pixels = data['PIXEL']
+        else:
+            self.pixels = zeros(self.npoly,dtype=int)
+        self.npixels = len(set(self.pixels))
 
         self.ncaps = data['NCAPS']
         for i,n,x in zip(self.polyids,self.ncaps,data):
             self.polylist[i] = zeros((n,4))
             self.polylist[i][...,:-1] = x['XCAPS'][:3*n].reshape(n,3)
             self.polylist[i][...,-1] = x['CMCAPS'][:n]
-        
+
         # Some additional fields that may be in the file
         if 'SECTOR' in names:
             self.sector = data['SECTOR']
