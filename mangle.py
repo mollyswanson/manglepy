@@ -142,15 +142,15 @@ class Mangle:
         goodpolys = -ones(len(ra),dtype=int)
         # If we have a pixelized mask, we can reduce the number of polygons 
         # we have to check for each object.
-        if self.npixels > 0:
-            for pix in self.pixels:
-                pixels = which_pixel(ra,dec)
-            # TBD: This needs to be finished!
-            return None
-        else:
-            for i,poly in zip(self.polyids,self.polylist):
-                test = self.inpoly_vec(poly,x0,y0,z0)
-                goodpolys[test] = i
+        #if self.npixels > 0:
+        #    for pix in self.pixels:
+        #        pixels = self.which_pixel(ra,dec)
+        #    # TBD: This needs to be finished!
+        #    return None
+        #else:
+        for i,poly in zip(self.polyids,self.polylist):
+            test = self.inpoly_vec(poly,x0,y0,z0)
+            goodpolys[test] = i
         return goodpolys
     #...
 

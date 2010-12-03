@@ -27,7 +27,7 @@ class TestMangle(unittest.TestCase):
         #self.polyfile = '../data/current_boss_geometry.ply'
         #self.polyfile = '../data/geometry/geometry-boss_1-11-balkanized.ply'
         #self.polyfile = '../data/geometry/geometry-boss_7-10.ply'
-        self.polyfile = '../data/geometry/geometry-boss7.ply'
+        self.polyfile = '/Users/parejkoj/astronomy/BOSS/data/geometry/geometry-boss7-11-balkanized.ply'
         self.mng = mangle.Mangle(self.polyfile)
         self.mng_orig = mangle_orig.Mangle(self.polyfile)
 
@@ -36,8 +36,8 @@ class TestMangle(unittest.TestCase):
         self.mng_fits = mangle.Mangle(self.fitsfile)
 
         # read in some test data of galaxies
-        data = pyfits.open('../data/final-boss7.fits')
-        self.data = data[1].data[:10000]
+        data = pyfits.open('/Users/parejkoj/astronomy/BOSS/data/final-boss7.fits')
+        self.data = data[1].data[:1000]
         data = None
 
         # Write out a file containing RA DEC for the commandline mangle
@@ -58,7 +58,7 @@ class TestMangle(unittest.TestCase):
         """Run the commandline version of polyid.
         Return the polygons and the total time the command took."""
         polyidoutfile = './mangle_test_polyid.dat'
-        polyid_call = '../../mangle2.2/bin/polyid -q '+' '.join((self.polyfile,self.mangletestfile,polyidoutfile))
+        polyid_call = 'polyid -q '+' '.join((self.polyfile,self.mangletestfile,polyidoutfile))
         # NOTE: have to use time.time() here because of clock() returns the
         # CPU time of python, not of external programs.
         start = time.time()
@@ -195,6 +195,14 @@ class TestMangle(unittest.TestCase):
         print 'Elapsed time for weight (orig,new,new_vector):',
         print elapsed1,elapsed2,elapsed3
     #...
+
+    def test_getitem(self):
+        """TBD: figure out a way to test these various slices."""
+        mng2 = self.mng[1]
+        mng2 = self.mng[1:10]
+        mng2 = self.mng[[1,2,3,4,5,6,7,8,9]]
+        test = self.mng.polyids < 10
+        mng2 = self.mng[test]
 #...
 
 if __name__ == '__main__':
