@@ -1,12 +1,24 @@
 # mangle.py
-"""Python class to implement some basic Mangle routines for identifying the
-polygon(s) that point(s) are in, and their areas, etc.
+"""Basic mangle routines for identifying which points are in which polygons.
 
-The single element versions of this are fairly slow when looping over
-a large data set, but the get_polyids/get_areas functions are within
-a factor of two of the speed of the commandline code.
+For more on Mangle:
+    http://space.mit.edu/~molly/mangle/
 
-Requires numpy, and pyfits > 2.3.1 for loading fits files.
+To build the included cython mangle_utils code, which will result in a ~4x
+speed up for polyid commands:
+    python setup.py build_ext --inplace
+
+Example usage:
+    import mangle
+    polyfile = 'geometry-boss7.ply' #(also accepts fits files)
+    mng = mangle.Mangle(polyfile)
+    # ... read in a file with ra/dec coordinates as a numpy array
+    polyids = mng.get_areas(ra,dec)
+    mng.areas[polyids] == mng.get_areas(ra,dec)
+    mng.weights[polyids] == mng.get_weights(ra,dec)
+    first_mng = mng[:10] # new mangle instance with just the first 10 polygons
+
+Requires numpy > 1.0, and pyfits > 2.3.1 for loading fits files.
 """
 # Author:		Martin White	(UCB)
 # Written		17-Mar-2010
@@ -42,32 +54,41 @@ else:
 import numpy as np
 # some of these will need to be called often, so explicitly name them
 from numpy import array,sin,cos,fabs,pi,empty,zeros,ones,argsort,take,arange
+import pyfits
 
 class Mangle:
-    """
-    Mangle:
-    A Python class to implement some basic mangle routines to check
-    what polygon a given (ra,dec) lies within, what its Mangle weight
-    is etc.  [(ra,dec) should be in decimal degrees.]
-    The class is initialized with 1 argument, the file name of an
-    ascii string (in Mangle polygon format) containing the mask.
-    If the file contains no weights, they are set to zero for all polygons.
+    """Implements basic mangle routines to identify polygons containing points.
     
-    Warning: the polyid(), area(), and weight() functions are very
-    slow when used in a loop.  get_polyids(), etc. are up to 40x
-    faster and should be used anytime more than ~100 objects need to
-    have their polygons found.
+    All functions assume ra,dec are in decimal degrees.
+
+    Initialize with a single string containing the mask file, which can be
+    either a polygon format file or a fits file.
+
+    Default values, if the file does not specify them:
+        weight == 0.
+        area = -1.
+        pixel = 0
+
+    For working with large numbers of points, use the get_XXX() functions:
+        get_polyids(), get_weight(), get_areas()
+    which are up to 100x faster than the single value functions:
+        polyid(), weight(), area()
+    when operating on numpy arrays.
+    
+    Supports slicing, e.g.:
+        newmng = mng[:10]
+        newmng2 = mng[mng.areas < 1e-7]
+        newmng3 = mng[[1,3,5,7,9]]
     """
 
     __author__ = "John Parejko & Martin White"
-    __version__ = "2.0"
+    __version__ = "2.2"
     __email__  = "john.parejko@yale.edu"
 
     def incap_spam(self,cap,x0,y0,z0):
         """
-        incap_spam(self,cap,x0,y0,z0):
-        This is an internal function used by the class, you shouldn't need
-        to use it.
+        Internal class function.
+
         Returns True if (theta,phi) lies in the cap specified by the
         4-vector "cap" containing (x,y,z,cm).
         """
@@ -85,23 +106,22 @@ class Mangle:
 
     def incap_vec(self,cap,x0,y0,z0):
         """
+        Internal class function.
+
         Returns True for each (theta,phi) that lies in the cap specified by the
-        4-vector "cap" containing (x,y,z,cm), and False for the rest.
-        """
+        4-vector "cap" containing (x,y,z,cm), and False for the rest."""
         cd = 1.0-cap[0]*x0-cap[1]*y0-cap[2]*z0
         return ((cap[3] < 0.0) & (cd>fabs(cap[3]))) | ((cap[3] > 0.0) & (cd<cap[3]))
     #...
 
     def inpoly_spam(self,polygon,theta,phi):
         """
-        inpoly_spam(self,polygon,theta,phi):
-        This is an internal function used by the class, you shouldn't need
-        to use it.
+        Internal class function.
+
         Returns True if (theta,phi) is in the polygon, i.e. if it is
         within all of the caps in the polygon.
         A polygon is a list giving the polygon number, the weight and
-        then all of the caps (each cap is a 4-vector/4-list).
-        """
+        then all of the caps (each cap is a 4-vector/4-list)."""
         # precompute the trig functions
         sintheta =  sin(theta)
         x0 = sintheta*cos(phi)
@@ -113,11 +133,12 @@ class Mangle:
 
     def inpoly_vec(self,polygon,x0,y0,z0):
         """
-        inpoly_spam(self,polygon,theta,phi):
-            Returns True for each (theta,phi) if it is in the polygon,
-            i.e. if it is within all of the caps in the polygon.
-            A polygon is a list giving the polygon number, the weight and
-            then all of the caps (each cap is a 4-vector/4-list).
+        Internal class function.
+
+        Returns True for each (theta,phi) if it is in the polygon,
+        i.e. if it is within all of the caps in the polygon.
+        A polygon is a list giving the polygon number, the weight and
+        then all of the caps (each cap is a 4-vector/4-list).
         """
         test = ones(len(x0),dtype=bool)
         if useUtils:
@@ -127,12 +148,12 @@ class Mangle:
             for cap in polygon:
                 test &= self.incap_vec(cap,x0,y0,z0)
         return test
-        # NOTE: the below doesn't work, but I think it should.
-        #return all((self.incap_vec(x,x0,y0,z0) for x in polygon[3]),axis=1)
     #...
     
     def which_pixel(self,ra,dec):
-        """Return the pixel numbers for a list of ra/dec
+        """Return the pixel numbers for each pair of ra,dec.
+        
+        UNFINISHED!!!
         The pixelization information is , given pixelization
         resolution res and scheme 's' or 'd'.
         !!! NOTE: only scheme 's' is currently implemented"""
@@ -145,10 +166,9 @@ class Mangle:
     #...        
 
     def get_polyids(self,ra,dec):
-        """
-        polyid(self,ra,dec):
-            Return the ID number of polygons given arrays of RA and DEC
-            in decimal degrees.
+        """Return the ID numbers of the polygons containing each RA/Dec pair.
+
+        ra/dec should be numpy arrays in decimal degrees.
         """
         theta = pi/180. * (90.0-dec)
         phi = pi/180. * ra
@@ -172,29 +192,32 @@ class Mangle:
     #...
 
     def get_areas(self,ra,dec):
-        """
-        get_areas(self,ra,dec):
-            Return the areas of the polygons containing each RA/Dec pair.
-            Result is in steradians.
+        """Return the areas of the polygons containing each RA/Dec pair.
+
+        ra/dec should be numpy arrays in decimal degrees.
+
+        Return value is in steradians.
+
+        Polygon areas are taken directly from the input file.
         """
         polyids=self.get_polyids(ra,dec)
         return self.areas[polyids]
     #...
 
     def get_weights(self,ra,dec):
-        """
-        get_weights(self,ra,dec):
-            Return the weights of the polygons containing each RA/dec pair.
-        """
+        """Return the weights of the polygons containing each RA/dec pair.
+
+        ra,dec should be numpy arrays in decimal degrees.
+
+        The weight is taken directly from the input file."""
         polyids=self.get_polyids(ra,dec)
         return self.weights[polyids]
     #...
 
     def polyid(self,ra,dec):
-        """
-        polyid(self,ra,dec):
-        This is one of the main methods for this class, it returns the
-        ID number of the polygon given an RA and DEC in decimal degrees.
+        """Return the polyid of the polygon containing (ra,dec).
+        
+        ra,dec should be in decimal degrees.
         """
         theta = pi/180. * (90.0-dec)
         phi   = pi/180. * ra
@@ -206,10 +229,9 @@ class Mangle:
         return(ipoly)
 
     def weight(self,ra,dec):
-        """
-        weight(self,ra,dec):
-        This is one of the main methods for this class, it returns the
-        polygon weight given an RA and DEC in decimal degrees.
+        """Return the weight of the polygon containing (ra,dec).
+        
+        ra,dec should be in decimal degrees.
         """
         theta = pi/180. * (90.0-dec)
         phi   = pi/180. * ra
@@ -221,60 +243,73 @@ class Mangle:
         return(weight)
 
     def area(self,ra,dec):
-        """
-        area(self,ra,dec):
-        This is one of the main methods for this class, it returns the
-        polygon area in steradians given an RA and DEC in decimal degrees.
+        """Return the area of the polygon containing (ra,dec).
+        
+        ra,dec should be in decimal degrees.
+
+        Return value is in steradians.
         """
         theta = pi/180. * (90.0-dec)
         phi   = pi/180. * ra
         area  = -1.0
-        for a,poly in zip(self.areas,self.polylist):
+        for a,poly in izip(self.areas,self.polylist):
             if self.inpoly_spam(poly,theta,phi):
                 area = a
                 break
         return(area)
 
     def totalarea(self):
-        """
-        totalarea(self):
-        Returns the total area in the mask (i.e. the sum of the areas of
-        each polygon) and the total "effective" area (i.e. the area weighted
-        by the completeness).
-        Returns (tot_area,eff_area).
+        """Return the total area and the 'effective' area in the mask.
+
+        total area is the sum of the areas of each polygon.
+        effective area is the area weighted by the completeness.
         """
         tot_area,eff_area = 0.0,0.0
-        for a,w in zip(self.areas,self.weights):
+        for a,w in izip(self.areas,self.weights):
             """poly in self.polylist:"""
             tot_area += a
             eff_area += a*w
         return((tot_area,eff_area))
 
-    def setweight(self,polyid,weight):
-        """
-        setweight(self,polyid,weight):
-        Sets the weight entry of polygon "polyid" to weight.
+    def set_weight(self,polyid,weight):
+        """Set the weight of polygon 'polyid' to weight.
+        
+        polyid can be an int, index array or boolean index array.
         """
         self.weights[polyid] = weight
 
-    def setallweight(self,weight):
+    def set_area(self,polyid,area):
+        """Set the area of polygon 'polyid' to area.
+        
+        polyid can be an int, index array or boolean index array.
         """
-        setallweight(self,weight):
-        Sets the weight entry of all polygons to weight, typically used
-        to set everything to 0.
+        self.area[polyid] = area
+
+    def set_pixel(self,polyid,pixel):
+        """Set the pixel ID of polygon 'polyid' to pixel.
+        
+        polyid can be an int, index array or boolean index array.
         """
+        self.pixel[polyid] = pixel
+
+    def set_allarea(self,area):
+        """Set the area of all polygons to weight."""
+        self.areas.flat = area
+
+    def set_allweight(self,weight):
+        """Set the weight of all polygons to weight."""
         self.weights.flat = weight
 
+    def set_allpixel(self,pixel):
+        """Set the weight of all polygons to weight."""
+        self.pixels.flat = pixel
+
     def writeply(self,fn):
-        """
-        writeply(self,fn):
-        Writes a Mangle-formatted polygon file containing the information
-        in the class.
-        """
+        """Write a Mangle-formatted polygon file containing these polygons."""
         ff = open(fn,"w")
         ff.write("%d polygons\n"%len(self.polylist))
-        for i in self.polyids:
-            str = "polygon %10d ( %d caps,"%(i,len(self.polylist[i]))
+        for i in range(self.npoly):
+            str = "polygon %10d ( %d caps,"%(self.polyids[i],len(self.polylist[i]))
             str+= " %.8f weight, %.15f str):\n"%(self.areas[i],self.weights[i])
             ff.write(str)
             for cap in self.polylist[i]:
@@ -283,17 +318,22 @@ class Mangle:
         ff.close()
 
     def __getitem__(self,idx):
-        """Return a mangle instance containing only those polygons
-        referenced in idx. """
+        """Slice this mangle instance by the index array idx.
+        
+        Return a mangle instance containing only those polygons
+        referenced in idx, which can be a single integer, array or list
+        of indicies, a boolean index array, or a slice.
+        """
         mng2=copy.deepcopy(self)
         mng2.polyids = self.polyids[idx]
         # slices also have no len(), so we need to test after indexing
+        # incase a slice was passed.
         try:
-            mng2.npolys = len(mng2.polyids)
+            mng2.npoly = len(mng2.polyids)
         except TypeError:
             idx = [idx,]
             mng2.polyids = self.polyids[idx]
-            mng2.npolyds = len(mng2.polyids)
+            mng2.npoly = len(mng2.polyids)
         mng2.polylist = mng2.polylist[idx]
         mng2.areas = mng2.areas[idx]
         mng2.weights = mng2.weights[idx]
@@ -309,14 +349,19 @@ class Mangle:
     #...
 
     def graphics(self):
-        """Return an array of edge points that can be used to plot
-        these polygons.
-        Calls 'poly2poly' to generate a temporary graphics file and
-        return the output.
+        """Return an array of edge points, to plot these polygons.
+
+        Calls the command-line 'poly2poly' to generate a temporary graphics
+        file and return the output.
+
         The returned array has len() == npoly, with each element
         being an array of ra/dec pairs. Plot a polygon with, e.g.:
             polys = mng.graphics()
             pylab.plot(polys[0]['ra'],polys[0]['dec'])
+        or all of them (this may take a while,if there are a lot of polygons):
+            polys = mng.graphics()
+            for poly in polys:
+                pylab.plot(poly['ra'],poly['dec'])
         """
         import tempfile
         import subprocess
@@ -426,7 +471,6 @@ class Mangle:
 
     def read_fits_file(self,fn):
         """Read in polygons from a .fits file."""
-        import pyfits
         data = pyfits.open(fn,memmap=True)[1].data
         self.npoly = len(data)
 
@@ -470,10 +514,12 @@ class Mangle:
     #...
 
     def __init__(self,fn):
-        """
-        __init__(self,fn):
-        The class is initialized with the name of an ascii file containing
-        the Mangle mask.  Acceptable formats are .ply and .fits.
+        """Initialize Mangle with a file containing the polygon mask.
+        
+        Acceptable formats (determined from the file extension):
+            .ply <-- Mangle polygon files:
+                http://space.mit.edu/~molly/mangle/manual/polygon.html
+            .fits <-- FITS file
         """
         if not os.path.exists(fn):
             raise RuntimeError,"Can not find %s"%fn
