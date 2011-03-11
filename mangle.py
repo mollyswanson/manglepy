@@ -20,11 +20,24 @@ Requires numpy, and pyfits > 2.3.1 for loading fits files.
 #        22-Jul-2010 jkp: (completed and tested numpy version. Speed is ~1/2 that of the commandline mangle)
 #        10-Aug-2010 jkp: (Added resorting of out-of-order polygons and altered original polylist structure)
 #        10-Oct-2010 jkp: (Added __getitem__, returning a new Mangle instance given an index)
+#        10-Mar-2011 jkp: (Added support for mangle_utils, with a 4x faster cythonized _incap)
 
 import os
 import re
 import string
 import copy
+from itertools import izip
+
+try:
+    #raise ImportError # uncomment this to force pure-python code
+    import mangle_utils
+except ImportError as e:
+    print "Error, could not import mangle_utils:",e
+    print "Mangle routines will still function, but be slower."
+    print "Check that you have built mangle_utils.so (see README.txt)."
+    useUtils = False
+else:
+    useUtils = True
 
 import numpy as np
 # some of these will need to be called often, so explicitly name them
@@ -101,14 +114,18 @@ class Mangle:
     def inpoly_vec(self,polygon,x0,y0,z0):
         """
         inpoly_spam(self,polygon,theta,phi):
-            Returns True if (theta,phi) is in the polygon, i.e. if it is
-            within all of the caps in the polygon.
+            Returns True for each (theta,phi) if it is in the polygon,
+            i.e. if it is within all of the caps in the polygon.
             A polygon is a list giving the polygon number, the weight and
             then all of the caps (each cap is a 4-vector/4-list).
         """
         test = ones(len(x0),dtype=bool)
-        for x in polygon:
-            test &= self.incap_vec(x,x0,y0,z0)
+        if useUtils:
+            for cap in polygon:
+                test &= mangle_utils._incap(cap,x0,y0,z0)
+        else:
+            for cap in polygon:
+                test &= self.incap_vec(cap,x0,y0,z0)
         return test
         # NOTE: the below doesn't work, but I think it should.
         #return all((self.incap_vec(x,x0,y0,z0) for x in polygon[3]),axis=1)
@@ -139,7 +156,6 @@ class Mangle:
         x0 = sintheta*cos(phi)
         y0 = sintheta*sin(phi)
         z0 = cos(theta)
-        goodpolys = -ones(len(ra),dtype=int)
         # If we have a pixelized mask, we can reduce the number of polygons 
         # we have to check for each object.
         #if self.npixels > 0:
@@ -148,7 +164,8 @@ class Mangle:
         #    # TBD: This needs to be finished!
         #    return None
         #else:
-        for i,poly in zip(self.polyids,self.polylist):
+        goodpolys = -ones(len(ra),dtype=int)
+        for i,poly in izip(self.polyids,self.polylist):
             test = self.inpoly_vec(poly,x0,y0,z0)
             goodpolys[test] = i
         return goodpolys
@@ -432,7 +449,7 @@ class Mangle:
         self.npixels = len(set(self.pixels))
 
         self.ncaps = data['NCAPS']
-        for i,n,x in zip(self.polyids,self.ncaps,data):
+        for i,n,x in izip(self.polyids,self.ncaps,data):
             self.polylist[i] = zeros((n,4))
             self.polylist[i][...,:-1] = x['XCAPS'][:3*n].reshape(n,3)
             self.polylist[i][...,-1] = x['CMCAPS'][:n]

@@ -27,17 +27,26 @@ class TestMangle(unittest.TestCase):
         #self.polyfile = '../data/current_boss_geometry.ply'
         #self.polyfile = '../data/geometry/geometry-boss_1-11-balkanized.ply'
         #self.polyfile = '../data/geometry/geometry-boss_7-10.ply'
-        self.polyfile = '/Users/parejkoj/astronomy/BOSS/data/geometry/geometry-boss7-11-balkanized.ply'
+        #self.polyfile = '/Users/parejkoj/astronomy/BOSS/data/geometry/geometry-boss_7-11-balkanized.ply'
+        self.polyfile = '/Users/parejkoj/astronomy/BOSS/data/geometry/geometry-boss7.ply'
         self.mng = mangle.Mangle(self.polyfile)
         self.mng_orig = mangle_orig.Mangle(self.polyfile)
 
         # just require that the fits file exist for now.
         self.fitsfile = self.polyfile.split('.ply')[0]+'.fits'
-        self.mng_fits = mangle.Mangle(self.fitsfile)
+        if glob.glob(self.fitsfile):
+            self.mng_fits = mangle.Mangle(self.fitsfile)
+        else:
+            self.mng_fits = None
 
         # read in some test data of galaxies
+        # these two lines give a relatively quick test
         data = pyfits.open('/Users/parejkoj/astronomy/BOSS/data/final-boss7.fits')
         self.data = data[1].data[:1000]
+        # these two lines give a very long test, and are not recommended
+        # for use with any non-vectorized mangle, as they will take for ever.
+        #data = pyfits.open('/Users/parejkoj/astronomy/BOSS/data/samples/boss+legacy_7-12_CMASS-randoms-2000000.fits')
+        #self.data = data[1].data
         data = None
 
         # Write out a file containing RA DEC for the commandline mangle
@@ -68,7 +77,10 @@ class TestMangle(unittest.TestCase):
         temp = incsv.next() # strip off the one line header
         polyids = []
         for x in incsv:
-            polyids.append(float(x[2])) # lines are: RA,Dec,id
+            if len(x) == 3:
+                polyids.append(float(x[2])) # lines are: RA,Dec,id
+            else:
+                polyids.append(-1)
         os.remove(polyidoutfile)
         return numpy.array(polyids),elapsed
     #...
@@ -203,6 +215,7 @@ class TestMangle(unittest.TestCase):
         mng2 = self.mng[[1,2,3,4,5,6,7,8,9]]
         test = self.mng.polyids < 10
         mng2 = self.mng[test]
+    #...
 #...
 
 if __name__ == '__main__':
