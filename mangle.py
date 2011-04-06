@@ -170,8 +170,9 @@ class Mangle:
 
         ra/dec should be numpy arrays in decimal degrees.
         """
-        theta = pi/180. * (90.0-dec)
-        phi = pi/180. * ra
+        # force an upconversion to double, in case ra/dec are float32
+        theta = pi/180. * (90.0-np.float64(dec))
+        phi = pi/180. * np.float64(ra)
         sintheta = sin(theta)
         x0 = sintheta*cos(phi)
         y0 = sintheta*sin(phi)
