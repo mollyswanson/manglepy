@@ -16,6 +16,7 @@ import pyfits
 import csv
 import subprocess
 import time
+import tempfile
 import glob
 
 import mangle
@@ -49,6 +50,8 @@ class TestMangle(unittest.TestCase):
         #self.data = data[1].data
         data = None
 
+        self.writetestfile = './mangle_test_polys.ply'
+        
         # Write out a file containing RA DEC for the commandline mangle
         self.mangletestfile = './mangle_test_data.dat'
         outfile = file(self.mangletestfile,'w')
@@ -61,6 +64,8 @@ class TestMangle(unittest.TestCase):
 
     def tearDown(self):
         os.remove(self.mangletestfile)
+        if glob.glob(self.writetestfile):
+            os.remove(self.writetestfile)
     #...
 
     def do_polyid_cmd(self):
@@ -215,6 +220,19 @@ class TestMangle(unittest.TestCase):
         mng2 = self.mng[[1,2,3,4,5,6,7,8,9]]
         test = self.mng.polyids < 10
         mng2 = self.mng[test]
+    #...
+
+    def test_write(self):
+        """Test writing the polygon file and re-reading it."""
+        self.mng.writeply(self.writetestfile)
+        mng_temp = mangle.Mangle(self.writetestfile)
+        numpy.testing.assert_allclose(mng_temp.polyids,self.mng.polyids)
+        numpy.testing.assert_allclose(mng_temp.areas,self.mng.areas)
+        numpy.testing.assert_allclose(mng_temp.weights,self.mng.weights)
+        for poly1,poly2 in zip(mng_temp.polylist,self.mng.polylist):
+            numpy.testing.assert_allclose(poly1,poly2)
+        if 'pixels' in dir(self.mng):
+            numpy.testing.assert_allclose(mng_temp.pixels,self.mng.pixels)
     #...
 #...
 

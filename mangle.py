@@ -265,11 +265,8 @@ class Mangle:
         total area is the sum of the areas of each polygon.
         effective area is the area weighted by the completeness.
         """
-        tot_area,eff_area = 0.0,0.0
-        for a,w in izip(self.areas,self.weights):
-            """poly in self.polylist:"""
-            tot_area += a
-            eff_area += a*w
+        tot_area = self.areas.sum()
+        eff_area = (self.weights*self.areas).sum()
         return((tot_area,eff_area))
 
     def set_weight(self,polyid,weight):
@@ -310,8 +307,9 @@ class Mangle:
         ff = open(fn,"w")
         ff.write("%d polygons\n"%len(self.polylist))
         for i in range(self.npoly):
+            # TBD: add writing pixel information to the output file.
             str = "polygon %10d ( %d caps,"%(self.polyids[i],len(self.polylist[i]))
-            str+= " %.8f weight, %.15f str):\n"%(self.areas[i],self.weights[i])
+            str+= " %.8f weight, %.15f str):\n"%(self.weights[i],self.areas[i])
             ff.write(str)
             for cap in self.polylist[i]:
                 ff.write("%25.20f %25.20f %25.20f %25.20f\n"%\
