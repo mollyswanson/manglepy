@@ -33,6 +33,7 @@ Requires numpy > 1.0, and pyfits > 2.3.1 for loading fits files.
 #        10-Aug-2010 jkp: (Added resorting of out-of-order polygons and altered original polylist structure)
 #        10-Oct-2010 jkp: (Added __getitem__, returning a new Mangle instance given an index)
 #        10-Mar-2011 jkp: (Added support for mangle_utils, with a 4x faster cythonized _incap)
+#        18-May-2011 apw: (Added support using the photofield database tables in dr8db/spectradb)
 
 import os
 import re
@@ -302,9 +303,9 @@ class Mangle:
         """Set the weight of all polygons to weight."""
         self.pixels.flat = pixel
 
-    def writeply(self,fn):
+    def writeply(self,filename):
         """Write a Mangle-formatted polygon file containing these polygons."""
-        ff = open(fn,"w")
+        ff = open(filename,"w")
         ff.write("%d polygons\n"%len(self.polylist))
         for i in range(self.npoly):
             # TBD: add writing pixel information to the output file.
@@ -389,7 +390,7 @@ class Mangle:
         return polys
     #...
 
-    def read_ply_file(self,fn):
+    def read_ply_file(self,filename):
         """Read in polygons from a .ply file."""
         # It's useful to pre-compile a regular expression for a mangle line
         # defining a polygon.
@@ -399,12 +400,12 @@ class Mangle:
         reArea = re.compile(r"(\d*\.?\d+)\s+str")
         rePixel = re.compile(r"(\d*)\s+pixel")
         #
-        ff = open(fn,"r")
+        ff = open(filename,"r")
         self.npoly = 0
         line = ff.readline()
         ss = re.match(r"(\d+)\s+polygons",line)
         if ss==None:
-            raise RuntimeError,"Can not parse 1st line of %s"%fn
+            raise RuntimeError,"Can not parse 1st line of %s"%filename
         else:
             self.npoly = int( ss.group(1) )
         self.polylist = empty(self.npoly,dtype='object')
@@ -468,9 +469,35 @@ class Mangle:
         ff.close()
     #...
 
-    def read_fits_file(self,fn):
+    def convert_db(self, windows):
+        """Read in polygons from a windows db table in photofielddb."""
+        self.npoly = len(windows)
+        self.pixelization=None
+
+        # pull out the relevant fields
+        self.polylist= empty(self.npoly,dtype='object')
+        self.polyids= arange(0,self.npoly,dtype=int)
+        self.npixels = 0
+        self.areas= zeros(self.npoly, dtype= 'float64')
+        self.weight= zeros(self.npoly, dtype= 'float32')
+        self.pixels= zeros(self.npoly, dtype= 'int32')
+        self.ifield= zeros(self.npoly, dtype= 'int32')
+        self.ncaps= zeros(self.npoly, dtype='int32')
+        for i in range(self.npoly):
+            self.areas[i]= windows[i].str
+            self.weight[i]= windows[i].weight
+            self.pixels[i]= windows[i].pixel
+            self.ifield[i]= windows[i].ifield
+            self.ncaps[i] = windows[i].ncaps
+        for i,n,w in zip(self.polyids,self.ncaps,windows):
+            self.polylist[i] = zeros((n,4))
+            self.polylist[i][...,:-1] = array(w.xcaps[:3*n]).reshape(n,3)
+            self.polylist[i][...,-1] = w.cmcaps[:n]
+    #...
+
+    def read_fits_file(self,filename):
         """Read in polygons from a .fits file."""
-        data = pyfits.open(fn,memmap=True)[1].data
+        data = pyfits.open(filename,memmap=True)[1].data
         self.npoly = len(data)
 
         names = data.dtype.names
@@ -512,24 +539,30 @@ class Mangle:
             self.fgotmain = []
     #...
 
-    def __init__(self,fn):
-        """Initialize Mangle with a file containing the polygon mask.
-        
+    def __init__(self,filename,db=False):
+        """
+        Initialize Mangle with a file containing the polygon mask.
+        If db == True, filename is expected to be a windows db table.
+
         Acceptable formats (determined from the file extension):
             .ply <-- Mangle polygon files:
                 http://space.mit.edu/~molly/mangle/manual/polygon.html
             .fits <-- FITS file
+            windows db table <-- if db == True
         """
-        if not os.path.exists(fn):
-            raise RuntimeError,"Can not find %s"%fn
-        self.filename = fn # useful to keep this around.
-        
-        if fn[-4:] == '.ply':
-            self.read_ply_file(fn)
-        elif fn[-5:] == '.fits':
-            self.read_fits_file(fn)
+        if db == True:
+            self.convert_db(filename)
+            self.filename == None
         else:
-            raise RuntimeError,"Unknown file extension for %s"%fn
+            if not os.path.exists(filename):
+                raise IOError,"Can not find %s"%filename
+            self.filename = filename # useful to keep this around.
+            if filename[-4:] == '.ply':
+                self.read_ply_file(filename)
+            elif filename[-5:] == '.fits':
+                self.read_fits_file(filename)
+            else:
+                raise IOError,"Unknown file extension for %s"%filename
 
         if len(self.polylist) != self.npoly:
             print "Got %d polygons, expecting %d."%\
