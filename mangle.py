@@ -40,6 +40,7 @@ Requires numpy > 1.0, and pyfits > 2.3.1 for loading fits files.
 #        20-Sep-2011 mecs: (added method to write a polygon fits file)
 #        27-Sep-2011 mecs: (added support to read in whatever extra column names are included in an input fits file)
 #        27-Sep-2011 mecs: (added metadata structure to track of extra columns and methods to add and remove columns)
+#        27-Sep-2011 mecs: (added support for reading variable length array columns)
 
 import os
 import re
@@ -455,7 +456,7 @@ class Mangle:
         self.polyids = zeros(self.npoly,dtype=int)
         self.areas = -ones(self.npoly)
         self.weights = zeros(self.npoly)
-        self.ncaps = zeros(self.npoly)
+        self.ncaps = zeros(self.npoly,dtype=int)
         self.pixels = zeros(self.npoly,dtype=int)
         counter = 0
         ss = rePoly.match(line)  
@@ -639,56 +640,69 @@ class Mangle:
             size=str(np.prod(data.shape[1:]))
             if dim is None:
                 dim=str(data.shape[1:])
+
+        if data.dtype.type is np.object_:
+            size='P'
+            dt=data[0].dtype.type
+        else:
+            dt=data.dtype.type
+                
         if format is None:    
             #detect appropriate format based on numpy type
             #use bzero and bscale for unsigned integers                  
-            if data.dtype.type is np.float64:
-                format=size+'D'
-            elif data.dtype.type is np.int32:
-                format=size+'J'
-            elif data.dtype.type is np.uint32:
-                format=size+'J'
+            if dt is np.float64:
+                ftype='D'
+            elif dt is np.int32:
+                ftype='J'
+            elif dt is np.uint32:
+                ftype='J'
                 bzero=2**31
                 bscale=1
-            elif data.dtype.type is np.string_:
+            elif dt is np.string_:
                 #add the string length to the dimensions in order to store an array of strings
                 dims=(data.dtype.itemsize,)+data.shape[1:]
                 size=str(np.prod(dims))
                 if len(dims)>1:
                     if dim is None:
                         dim=str(dims)
-                format=size+'A'
-            elif data.dtype.type is np.float32:
-                format=size+'E'
-            elif data.dtype.type is np.int16:
-                format=size+'I'
-            elif data.dtype.type is np.uint16:
-                format=size+'I'
+                ftype='A'
+            elif dt is np.float32:
+                ftype='E'
+            elif dt is np.int16:
+                ftype='I'
+            elif dt is np.uint16:
+                ftype='I'
                 bzero=2**15
                 bscale=1
-            elif data.dtype.type is np.int64:
-                format=size+'K'
-            elif data.dtype.type is np.uint64:
+            elif dt is np.int64:
+                ftype='K'
+            elif dt is np.uint64:
                 #64 bit unsigned ints don't work right now b/c scaling is done by converting bzero to a double, which doesn't have enough precision
                 #format='K'
                 #bzero=2**63
                 #use 32 bit unsigned int instead:
-                format=size+'J'
+                type='J'
                 bzero=2**31
                 bscale=1
-            elif data.dtype.type is np.complex64:
-                format=size+'C'
-            elif data.dtype.type is np.complex128:
-                format=size+'M'
-            elif data.dtype.type is np.bool_:
-                format=size+'L'
-            elif data.dtype.type is np.int8:
-                format=size+'B'
+            elif dt is np.complex64:
+                ftype='C'
+            elif dt is np.complex128:
+                ftype='M'
+            elif dt is np.bool_:
+                ftype='L'
+            elif dt is np.int8:
+                ftype='B'
                 bzero=-2**7
                 bscale=1
-            elif data.dtype.type is np.uint8:
-                format=size+'B'
-            
+            elif dt is np.uint8:
+                ftype='B'
+            else:
+                raise RuntimeError('data type '+str(dt)+' not supported')
+                
+            format=size+ftype
+            if size=='P':
+                format=format+'()'
+        
         self.metadata.update({name:{'bscale':bscale,
                                     'bzero':bzero,
                                     'dim':dim,
@@ -800,10 +814,8 @@ class Mangle:
             print "Got %d polygons, expecting %d."%\
               (len(self.polylist),self.npoly)
         if keep_ids == True:
-            self.ids=self.polyids
+            self.add_column('ids',self.polyids)
             self.polyids=arange(0,self.npoly,dtype=int)
-            self.names+=('ids',)
-            self.formats+=('J',)
         else:                
             # Check whether the polyids are sequential and range from 0 to npoly-1
             # If they don't, then there may be a problem with the file.
@@ -829,9 +841,7 @@ class Mangle:
                 print "Forcing 'polyids' attribute to be 0 to npoly-1 and saving ids from input as 'id' attribute"
                 print "To do this automatically, use 'keep_ids=True' in the mangle.Mangle constructor."
                 print "To write polygon file retaining the input ids, use 'keep_ids=True' in writeply()."
-                self.ids=self.polyids
+                self.add_column('ids',self.polyids)
                 self.polyids=arange(0,self.npoly,dtype=int)
-                self.names+=('ids',)
-                self.formats+=('J',)
-    #...
+     #...
 #...
