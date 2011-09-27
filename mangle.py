@@ -34,6 +34,12 @@ Requires numpy > 1.0, and pyfits > 2.3.1 for loading fits files.
 #        10-Oct-2010 jkp: (Added __getitem__, returning a new Mangle instance given an index)
 #        10-Mar-2011 jkp: (Added support for mangle_utils, with a 4x faster cythonized _incap)
 #        18-May-2011 apw: (Added support using the photofield database tables in dr8db/spectradb)
+#        10-Sep-2011 mecs: (allow ascii polygon files to be named .pol or .ply)
+#        10-Sep-2011 mecs: (added option to keep existing id numbers from the polygon file)
+#        15-Sep-2011 mecs: (added support to parse mangle header keywords in ascii and fits polygon files)
+#        20-Sep-2011 mecs: (added method to write a polygon fits file)
+#        27-Sep-2011 mecs: (added support to read in whatever extra column names are included in an input fits file)
+#        27-Sep-2011 mecs: (added metadata structure to track of extra columns and methods to add and remove columns)
 
 import os
 import re
@@ -303,14 +309,24 @@ class Mangle:
         """Set the weight of all polygons to weight."""
         self.pixels.flat = pixel
 
-    def writeply(self,filename):
+    def writeply(self,filename,keep_ids=False):
         """Write a Mangle-formatted polygon file containing these polygons."""
         ff = open(filename,"w")
         ff.write("%d polygons\n"%len(self.polylist))
+        if self.pixelization is not None:
+            ff.write("pixelization %d%s\n"%(self.pixelization[0],self.pixelization[1]))
+        if self.snapped == True:
+            ff.write("snapped\n")
+        if self.balkanized == True:
+            ff.write("balkanized\n")
+        if ('ids' in self.names) & keep_ids==True:
+            ids_to_write=self.ids
+        else:
+            ids_to_write=self.polyids
         for i in range(self.npoly):
             # TBD: add writing pixel information to the output file.
-            str = "polygon %10d ( %d caps,"%(self.polyids[i],len(self.polylist[i]))
-            str+= " %.8f weight, %.15f str):\n"%(self.weights[i],self.areas[i])
+            str = "polygon %10d ( %d caps,"%(ids_to_write[i],len(self.polylist[i]))
+            str+= " %.8f weight, %d pixel, %.15f str):\n"%(self.weights[i],self.pixels[i],self.areas[i])
             ff.write(str)
             for cap in self.polylist[i]:
                 ff.write("%25.20f %25.20f %25.20f %25.20f\n"%\
@@ -395,35 +411,54 @@ class Mangle:
         # It's useful to pre-compile a regular expression for a mangle line
         # defining a polygon.
         rePoly = re.compile(r"polygon\s+(\d+)\s+\(\s*(\d+)\s+caps")
-        rePixelization = re.compile(r"pixelization\s+(\d+)([sd])")
         reWeight = re.compile(r"(\d*\.?\d+)\s+weight")
         reArea = re.compile(r"(\d*\.?\d+)\s+str")
         rePixel = re.compile(r"(\d*)\s+pixel")
+        rePixelization = re.compile(r"pixelization\s+(\d+)([sd])")
+        rePolycount = re.compile(r"(\d+)\s+polygons")
+        reSnapped = re.compile(r"snapped")
+        reBalkanized = re.compile(r"balkanized")
+        reHeaderKeywords = re.compile(r"(\d+)\s+polygons|pixelization\s+(\d+)([sd])|balkanized|snapped")
         #
         ff = open(filename,"r")
-        self.npoly = 0
+        self.npoly = None
+        self.pixelization=None
+        self.snapped=False
+        self.balkanized=False
+        self.names=[]
+        self.metadata={}
         line = ff.readline()
-        ss = re.match(r"(\d+)\s+polygons",line)
-        if ss==None:
-            raise RuntimeError,"Can not parse 1st line of %s"%filename
-        else:
-            self.npoly = int( ss.group(1) )
-        self.polylist = empty(self.npoly,dtype='object')
+        #loop to read through header lines - stops when rePoly.match(line) returns something, indicating that we've
+        #made it through the header and have reached a polygon.
+        while (rePoly.match(line) is None)&(len(line)>0):
+            sss=reHeaderKeywords.match(line)
+            #if line starts with a header keyword, add the info as metadata
+            if sss is not None:
+                if rePolycount.match(line) is not None:
+                    self.npoly = int( sss.group(1) )
+                elif rePixelization.match(line) is not None:
+                    self.pixelization = (int(sss.group(2)),sss.group(3))
+                elif reSnapped.match(line) is not None: 
+                    self.snapped = True
+                elif reBalkanized.match(line) is not None:
+                    self.balkanized = True
+            #print warning if the line doesn't match any of the header keywords
+            else:
+                print "WARNING: line \""+line+"\" in "+filename+" ignored."
+            #read next line
+            line = ff.readline()
+                
+        if self.npoly is None:
+            raise RuntimeError,"Did not find polygon count line \"n polygons\" in header of %s"%filename
 
+        self.polylist = empty(self.npoly,dtype='object')
         self.polyids = zeros(self.npoly,dtype=int)
         self.areas = -ones(self.npoly)
         self.weights = zeros(self.npoly)
         self.ncaps = zeros(self.npoly)
         self.pixels = zeros(self.npoly,dtype=int)
         counter = 0
-        # Pixelization information should be on the next line
-        line = ff.readline()
-        ss = rePixelization.match(line)
-        if ss != None:
-            self.pixelization = (int(ss.group(1)),ss.group(2))
-        else:
-            self.pixelization = None
-        ss = rePoly.match(line)
+        ss = rePoly.match(line)  
         while len(line)>0:
             while (ss==None)&(len(line)>0):
                 line = ff.readline()
@@ -498,9 +533,41 @@ class Mangle:
     def read_fits_file(self,filename):
         """Read in polygons from a .fits file."""
         data = pyfits.open(filename,memmap=True)[1].data
+        header = pyfits.open(filename,memmap=True)[0].header
         self.npoly = len(data)
-
+        self.pixelization=None
+        self.snapped=False
+        self.balkanized=False
+        self.names=[]
+        self.formats=()
         names = data.dtype.names
+        formats=data.formats
+
+        #if mangle header keywords are present, use them
+        if ('PIXRES' in header.keys()) & ('PIXTYPE' in header.keys()) &  ('SNAPPED' in header.keys()) &  ('BLKNIZED' in header.keys()):
+            self.pixelization=(header['PIXRES'], header['PIXTYPE'])
+            self.snapped=header['SNAPPED']
+            self.balkanized=header['BLKNIZED']
+        #if mangle header keywords aren't present, check for text in header that looks like the header of an ascii polygon file:
+        else:
+            rePixelization = re.compile(r"pixelization\s+(\d+)([sd])")
+            reSnapped = re.compile(r"snapped")
+            reBalkanized = re.compile(r"balkanized")
+            reHeaderKeywords = re.compile(r"pixelization\s+(\d+)([sd])|balkanized|snapped")
+            cardlist=header.ascardlist()
+
+            for card in header.ascardlist():
+                line=str(card)
+                sss=reHeaderKeywords.match(line)
+            #if line starts with a header keyword, add the info as metadata
+                if sss is not None:
+                    if rePixelization.match(line) is not None:
+                        self.pixelization = (int(sss.group(1)),sss.group(2))
+                    elif reSnapped.match(line) is not None: 
+                        self.snapped = True
+                    elif reBalkanized.match(line) is not None:
+                        self.balkanized = True
+        
         # pull out the relevant fields
         self.polylist = empty(self.npoly,dtype='object')
         self.polyids = arange(0,self.npoly,dtype=int)
@@ -517,35 +584,200 @@ class Mangle:
         else:
             self.pixels = zeros(self.npoly,dtype=int)
         self.npixels = len(set(self.pixels))
-
         self.ncaps = data['NCAPS']
         for i,n,x in izip(self.polyids,self.ncaps,data):
             self.polylist[i] = zeros((n,4))
-            self.polylist[i][...,:-1] = x['XCAPS'][:3*n].reshape(n,3)
-            self.polylist[i][...,-1] = x['CMCAPS'][:n]
+            self.polylist[i][...,:-1] = x['XCAPS'].reshape(-1,1)[:3*n].reshape(n,3)
+            self.polylist[i][...,-1] = x['CMCAPS'].reshape(-1)[:n]
 
-        # Some additional fields that may be in the file
-        if 'SECTOR' in names:
-            self.sector = data['SECTOR']
-        else:
-            self.sector = []
-        if 'MMAX' in names:
-            self.mmax = data['MMAX']
-        else:
-            self.mmax = []
-        if 'FGOTMAIN' in names:
-            self.fgotmain = data['FGOTMAIN']
-        else:
-            self.fgotmain = []
-    #...
+        # Read any additional fields that may be in the file
+        info=data.columns.info(output=False)
+        self.metadata={}
+        for i, name in enumerate(names):
+            if ((name != 'XCAPS') & (name != 'CMCAPS') & (name != 'NCAPS') & (name != 'STR') & (name != 'WEIGHT') & (name != 'PIXEL')):
+                self.metadata.update({string.lower(name):{'bscale':info['bscale'][i],
+                                                          'bzero':info['bzero'][i],
+                                                          'dim':info['dim'][i],
+                                                          'disp':info['disp'][i],
+                                                          'format':info['format'][i],
+                                                          'name':info['name'][i],
+                                                          'null':info['null'][i],
+                                                          'start':info['start'][i],
+                                                          'unit':info['unit'][i]}})
+                # fits files use bzero and bscale along with signed int data types to represent unsigned integers
+                # e.g. for an unsigned 32 bit integer, the format code will be 'J' (same as for a signed 32 bit int),
+                # bscale will be 1 and bzero will be 2**31.  The data gets automatically converted as data=bscale*rawdata+bzero
+                if (info['bscale'][i] == 1.0) & (info['bzero'][i] is not ''):
+                    precision=str(np.int(np.log2(np.abs(np.double(info['bzero'][i])))+1)) # equal to '8', '16','32', '64'
+                    if ((precision == '16') | (precision == '32') | (precision == '64')) & (info['bzero'][i]>0):
+                        #define a numpy data type that is an unsigned int of the given precision
+                        dt=np.typeDict['uint'+precision]
+                        vars(self)[string.lower(name)] = dt(data[name])
+                    #for 8 bit ints, it's vice-versa: fits natively has an unsigned 8 bit int and requires bzero to convert to signed.
+                    elif (precision == '8') & (info['bzero'][i]<0):
+                        #define a numpy data type that is an unsigned int of the given precision 
+                        dt=np.typeDict['int'+precision]
+                        vars(self)[string.lower(name)] = dt(data[name])
+                    else:
+                        vars(self)[string.lower(name)] = data[name]
+                else:
+                    vars(self)[string.lower(name)] = data[name]
+                self.names+=[string.lower(name)]
 
-    def __init__(self,filename,db=False):
+    def add_column(self,name, data, format=None, unit=None, null=None, bscale=None, bzero=None, disp=None, start=None, dim=None):
+        """Add a column to the polygons object. Keyword arguments are the same as the pyfits.Column constructor.
+        Format will be detected automatically from the data type if not provided."""
+        #check to make sure length of array matches number of polygons
+        if len(data) != self.npoly:
+            raise RuntimeError('Length of array does not match number of polygons.')
+        #detect dimensions of array
+        if data.ndim==1:
+            size=''
+        elif data.ndim==2:
+            size=str(data.shape[-1])
+        elif data.ndim>2:
+            size=str(np.prod(data.shape[1:]))
+            if dim is None:
+                dim=str(data.shape[1:])
+        if format is None:    
+            #detect appropriate format based on numpy type
+            #use bzero and bscale for unsigned integers                  
+            if data.dtype.type is np.float64:
+                format=size+'D'
+            elif data.dtype.type is np.int32:
+                format=size+'J'
+            elif data.dtype.type is np.uint32:
+                format=size+'J'
+                bzero=2**31
+                bscale=1
+            elif data.dtype.type is np.string_:
+                #add the string length to the dimensions in order to store an array of strings
+                dims=(data.dtype.itemsize,)+data.shape[1:]
+                size=str(np.prod(dims))
+                if len(dims)>1:
+                    if dim is None:
+                        dim=str(dims)
+                format=size+'A'
+            elif data.dtype.type is np.float32:
+                format=size+'E'
+            elif data.dtype.type is np.int16:
+                format=size+'I'
+            elif data.dtype.type is np.uint16:
+                format=size+'I'
+                bzero=2**15
+                bscale=1
+            elif data.dtype.type is np.int64:
+                format=size+'K'
+            elif data.dtype.type is np.uint64:
+                #64 bit unsigned ints don't work right now b/c scaling is done by converting bzero to a double, which doesn't have enough precision
+                #format='K'
+                #bzero=2**63
+                #use 32 bit unsigned int instead:
+                format=size+'J'
+                bzero=2**31
+                bscale=1
+            elif data.dtype.type is np.complex64:
+                format=size+'C'
+            elif data.dtype.type is np.complex128:
+                format=size+'M'
+            elif data.dtype.type is np.bool_:
+                format=size+'L'
+            elif data.dtype.type is np.int8:
+                format=size+'B'
+                bzero=-2**7
+                bscale=1
+            elif data.dtype.type is np.uint8:
+                format=size+'B'
+            
+        self.metadata.update({name:{'bscale':bscale,
+                                    'bzero':bzero,
+                                    'dim':dim,
+                                    'disp':disp,
+                                    'format':format,
+                                    'name':string.upper(name),
+                                    'null':null,
+                                    'start':start,
+                                    'unit':unit}})
+        vars(self)[name] = data
+        self.names+=[name]
+
+    def remove_column(self,name):
+        """removes a column from the polygon structure and metadata"""
+        del vars(self)[name]
+        del self.metadata[name]
+        self.names.remove(name)
+        
+    def write_fits_file(self,filename,clobber=True):
+        """Write polygons to a .fits file."""
+
+        #define size of xcaps and cmcaps arrays based on the maximum number of caps in any polygon, fill extra spaces with zeros
+        maxn=self.ncaps.max()
+
+        #initialize to zero-filled arrays
+        xcaps=zeros((len(self.polylist),maxn,3))
+        cmcaps=zeros((len(self.polylist),maxn))
+
+        #run through polygons and massage caps data in polylist to fit into cmcaps and xcaps arrays
+        for i,n,poly in izip(self.polyids,self.ncaps,self.polylist):
+            cmcaps[i,:n]= poly[...,-1]
+            xcaps[i,:n]=poly[...,:-1]
+
+        #reshape xcaps array to have dimensions (npolys, 3*maxn) rather than (npolys,maxn,3) to keep pyfits happy  
+        xcaps=xcaps.reshape(-1,3*maxn)
+
+        #define pyfits columns for basic polygon file elements
+        xcaps_col=pyfits.Column(name='XCAPS',format=str(3*maxn)+'D',dim='( 3, '+str(maxn)+')',array=xcaps)
+        cmcaps_col=pyfits.Column(name='CMCAPS',format=str(maxn)+'D',array=cmcaps)
+        ncaps_col=pyfits.Column(name='NCAPS',format='J',array=self.ncaps)
+        str_col=pyfits.Column(name='STR',format='D',array=self.areas)
+        weight_col=pyfits.Column(name='WEIGHT',format='D',array=self.weights)
+        pixel_col=pyfits.Column(name='PIXEL',format='J',array=self.pixels)
+
+        #define pyfits columns for any extra columns listed in self.names
+        extracols=[]
+        for name in self.names:
+            info=self.metadata[name]
+            data=vars(self)[name]
+            #reshape arrays into 1-dim arrays so pyfits can deal
+            if data.dtype.type is np.string_:
+                if data.ndim>1:
+                    raise RuntimeError('arrays of strings not supported for exporting to fits file.')
+                   # using the line below give "operands could not be broadcast together" error
+                   #  data=array([''.join([a.ljust(data.dtype.itemsize) for a in x.flat]) for x in data])                 
+            else:
+                if data.ndim>2:
+                    data=data.reshape(-1,np.prod(data.shape[1:]))
+            col=pyfits.Column(name=info['name'],
+                              format=info['format'],
+                              bscale=info['bscale'],
+                              bzero=info['bzero'],
+                              dim=info['dim'],
+                              disp=info['disp'],
+                              null=info['null'],
+                              start=info['start'],
+                              unit=info['unit'],
+                              array=data)
+            extracols=extracols+[col]
+
+        #make a primary HDU for the table and add metadata
+        primary=pyfits.PrimaryHDU()
+        primary.header.update('PIXRES',self.pixelization[0])
+        primary.header.update('PIXTYPE',self.pixelization[1])
+        primary.header.update('SNAPPED',self.snapped)
+        primary.header.update('BLKNIZED',self.balkanized)
+
+        #make new fits table and write it to file 
+        table=pyfits.new_table(pyfits.ColDefs([xcaps_col,cmcaps_col,ncaps_col,weight_col,pixel_col,str_col]+extracols))
+        tablehdus=pyfits.HDUList([primary, table])
+        tablehdus.writeto(filename,clobber=clobber)
+
+    def __init__(self,filename,db=False,keep_ids=False):
         """
         Initialize Mangle with a file containing the polygon mask.
         If db == True, filename is expected to be a windows db table.
 
         Acceptable formats (determined from the file extension):
-            .ply <-- Mangle polygon files:
+            .ply or .pol <-- Mangle polygon files:
                 http://space.mit.edu/~molly/mangle/manual/polygon.html
             .fits <-- FITS file
             windows db table <-- if db == True
@@ -557,7 +789,7 @@ class Mangle:
             if not os.path.exists(filename):
                 raise IOError,"Can not find %s"%filename
             self.filename = filename # useful to keep this around.
-            if filename[-4:] == '.ply':
+            if (filename[-4:] == '.ply') | (filename[-4:] == '.pol'):
                 self.read_ply_file(filename)
             elif filename[-5:] == '.fits':
                 self.read_fits_file(filename)
@@ -567,21 +799,39 @@ class Mangle:
         if len(self.polylist) != self.npoly:
             print "Got %d polygons, expecting %d."%\
               (len(self.polylist),self.npoly)
-        # Check whether the polyids are sequential and range from 0 to npoly
-        # If they don't, then there may be a problem with the file.
-        # NOTE: this should always be correct for current_boss_geometry.
-        badcounter = 0
-        for i,polyid in enumerate(self.polyids):
-            if i != polyid:
-                badcounter += 1
-        if badcounter > 0:
-            print "WARNING!!!!"
-            print "Found",badcounter,"polygons out of order."
-            print "Reordering polygons so that polyid=index"
-            sorter = argsort(self.polyids)
-            self.polylist = take(self.polylist,sorter)
-            self.weights = self.weights[sorter]
-            self.areas = self.areas[sorter]
-            self.polyids = self.polyids[sorter]
+        if keep_ids == True:
+            self.ids=self.polyids
+            self.polyids=arange(0,self.npoly,dtype=int)
+            self.names+=('ids',)
+            self.formats+=('J',)
+        else:                
+            # Check whether the polyids are sequential and range from 0 to npoly-1
+            # If they don't, then there may be a problem with the file.
+            # NOTE: this should always be correct for current_boss_geometry.
+            badcounter = 0
+            if (min(self.polyids)==0) & (max(self.polyids)==self.npoly-1) :
+                for i,polyid in enumerate(self.polyids):
+                    if i != polyid:
+                        badcounter += 1
+                if badcounter > 0:
+                    print "WARNING!!!!"
+                    print "Found",badcounter,"polygons out of order."
+                    print "Reordering polygons so that polyid=index"
+                    sorter = argsort(self.polyids)
+                    self.polylist = take(self.polylist,sorter)
+                    self.weights = self.weights[sorter]
+                    self.areas = self.areas[sorter]
+                    self.polyids = self.polyids[sorter]
+                    badcounter = 0
+            else:
+                print "WARNING!!!!"
+                print "Range of polygon ids in input is (",min(self.polyids),",",max(self.polyids),"), not ( 0 ,",self.npoly-1,")"
+                print "Forcing 'polyids' attribute to be 0 to npoly-1 and saving ids from input as 'id' attribute"
+                print "To do this automatically, use 'keep_ids=True' in the mangle.Mangle constructor."
+                print "To write polygon file retaining the input ids, use 'keep_ids=True' in writeply()."
+                self.ids=self.polyids
+                self.polyids=arange(0,self.npoly,dtype=int)
+                self.names+=('ids',)
+                self.formats+=('J',)
     #...
 #...
