@@ -40,7 +40,8 @@ Requires numpy > 1.0, and pyfits > 2.3.1 for loading fits files.
 #        20-Sep-2011 mecs: (added method to write a polygon fits file)
 #        27-Sep-2011 mecs: (added support to read in whatever extra column names are included in an input fits file)
 #        27-Sep-2011 mecs: (added metadata structure to track of extra columns and methods to add and remove columns)
-#        27-Sep-2011 mecs: (added support for reading variable length array columns)
+#        27-Sep-2011 mecs: (added support for reading and writing variable length array columns)
+#        03-Nov-2011 mecs: (added support to read and write extra columns in ascii format)
 
 import os
 import re
@@ -89,7 +90,7 @@ class Mangle:
         newmng3 = mng[[1,3,5,7,9]]
     """
 
-    __author__ = "John Parejko & Martin White"
+    __author__ = "John Parejko, Martin White, Molly Swanson"
     __version__ = "2.2"
     __email__  = "john.parejko@yale.edu"
 
@@ -310,7 +311,7 @@ class Mangle:
         """Set the weight of all polygons to weight."""
         self.pixels.flat = pixel
 
-    def writeply(self,filename,keep_ids=False):
+    def writeply(self,filename,keep_ids=False,write_extra_columns=False,weight=None):
         """Write a Mangle-formatted polygon file containing these polygons."""
         ff = open(filename,"w")
         ff.write("%d polygons\n"%len(self.polylist))
@@ -334,6 +335,25 @@ class Mangle:
                   (cap[0],cap[1],cap[2],cap[3]))
         ff.close()
 
+        #write extra columns stored in this format:
+        # polygon file named poly.pol or poly_obstime.pol (to denote that the polygons are weighted by observation time)
+        # additional columns will be written as poly.maglims, poly.obstime, poly.XXX where XXX is the name of the column
+        # if a name is provided as the weight argument, e.g., weight='obstime', then that column will be written as the weights, and if 'obstime'
+        # is contained in the filename, e.g., polys_obstime.pol, additional columns will be written as poly.XXX (not poly_obstime.XXX)
+        # additional column files will have number of rows equal to the number of polygons 
+        # this allows alternate weights and extra information about the polygons that are stored in a fits file to be written in ascii format        
+        if write_extra_columns:
+            base_filename=string.split(filename,'.')[0]
+            # if column to weight by is provided, e.g., weights='obstime', check to see if base filename ends
+            # in _obstime and strip it off if it does before generating extra column filenames 
+            if weight is not None:
+                if weight==string.split(base_filename,'_')[-1]:
+                    base_filename='_'.join(string.split(base_filename,'_')[:-1])
+            for name in self.names:
+                asciiformat=self.metadata[name]['asciiformat']
+                if asciiformat is not None:
+                    np.savetxt(base_filename+'.'+name, vars(self)[name],fmt=asciiformat)
+
     def __getitem__(self,idx):
         """Slice this mangle instance by the index array idx.
         
@@ -356,12 +376,8 @@ class Mangle:
         mng2.weights = mng2.weights[idx]
         mng2.ncaps = mng2.ncaps[idx]
         mng2.pixels = mng2.pixels[idx]
-        if 'sector' in dir(mng2) and mng2.sector != []:
-            mng2.sector = mng2.sector[idx]
-        if 'mmax' in dir(mng2) and mng2.mmax != []:
-            mng2.mmax = mng2.mmax[idx]
-        if 'fgotmain' in dir(mng2) and mng2.fgotmain != []:
-            mng2.fgotmain = mng2.fgotmain[idx]
+        for name in mng2.names:
+            vars(mng2)[name]=vars(mng2)[name][idx]
         return mng2
     #...
 
@@ -388,14 +404,15 @@ class Mangle:
         call = ' '.join(('poly2poly -q -ol30',tempIn.name,tempOut.name))
         subprocess.call(call,shell=True)
         # NOTE: poly2poly -ol always outputs a separate weight file.
-        os.remove(tempOut.name+'.weight')
         tempIn.close()
         # the mangle list format has polygons delimited by NaN pairs.
         dtype=[('ra','>f8'),('dec','>f8')]
         data=np.loadtxt(tempOut,dtype=dtype)
+        weights=np.loadtxt(tempOut.name+'.weight',dtype=dtype)
         tempOut.close()
+        os.remove(tempOut.name+'.weight')
         i = 0
-        polys = np.empty(self.npoly,dtype='object')
+        polys = np.empty(len(weights),dtype='object')
         temp = []
         for x in data:
             if np.isnan(x[0]) and np.isnan(x[1]):
@@ -407,7 +424,8 @@ class Mangle:
         return polys
     #...
 
-    def read_ply_file(self,filename):
+    def read_ply_file(self,filename,read_extra_columns=False):
+        import glob
         """Read in polygons from a .ply file."""
         # It's useful to pre-compile a regular expression for a mangle line
         # defining a polygon.
@@ -503,6 +521,48 @@ class Mangle:
                 counter += 1
         self.npixels = len(set(self.pixels))
         ff.close()
+
+        #read in extra columns stored in this format:
+        # polygon file named poly.pol or poly_obstime.pol (to denote that the polygons are weighted by observation time)
+        # additional columns can be provided as poly.maglims, poly.obstime, poly.XXX where XXX is whatever tag applies to the column
+        # an additional column will be added to the mangle polygon object named XXX 
+        # additional column files should have number of rows equal to the number of polygons in poly.pol
+        # this allows alternate weights and extra information about the polygons that are stored in a fits file to be written in ascii format      
+        if read_extra_columns:
+            #grab base name of file, e.g., poly.pol will yield base_filename=poly
+            base_filename=string.split(self.filename,'.')[0]
+            #get list of files that satisfy base_filename.* 
+            files=glob.glob(base_filename+'.*')
+            #remove any files that are clearly not meant to be extra column files from the list - anything that ends in .pol,.ply,.fits,.list,.list.weight, or .eps
+            files=[f for f in files if (f[-4:] != '.ply') & (f[-4:] != '.pol') & (f[-5:] != '.fits') & (f[-5:] != '.list') & (f[-5:] != '.eps') &  (f[-12:] != '.list.weight')]
+            #if that didn't find any files to read in, try stripping off everything after the final underscore for the basename, so poly_obstime.pol yields base_filename=poly
+            if len(files)==0:
+                weights_tag=string.split(base_filename,'_')[-1] 
+                base_filename='_'.join(string.split(base_filename,'_')[:-1])
+                files=glob.glob(base_filename+'.*')
+                files=[f for f in files if (f[-4:] != '.ply') & (f[-4:] != '.pol') & (f[-5:] != '.fits') & (f[-5:] != '.list') & (f[-5:] != '.eps') &  (f[-12:] != '.list.weight')]
+            #loop through files
+            for f in files:
+                try:
+                    #basic file read that should work for anything with a fixed number of columns
+                    data=np.genfromtxt(f,dtype=None,invalid_raise=True)
+                except:
+                    try:
+                        #this can read a file that has a variable number of integers on each line - e.g., the output of the 'polyid' mangle function
+                        data=array([array([int(x) for x in string.split(line)]) for line in open(f,'r')])                        
+                    except:
+                        try:
+                            #this can read a file with a variable number of floats on each line
+                            data=array([array([float(x) for x in string.split(line)]) for line in open(f,'r')])
+                        except:
+                            print 'WARNING: could not read column from file '+f
+                            continue                            
+                if len(data)!=self.npoly:
+                    print 'number of lines in '+f+' does not match number of polygons in '+self.filename
+                    continue
+                name=string.split(f,'.')[-1]
+                self.add_column(name,data)
+                
     #...
 
     def convert_db(self, windows):
@@ -596,16 +656,7 @@ class Mangle:
         self.metadata={}
         for i, name in enumerate(names):
             if ((name != 'XCAPS') & (name != 'CMCAPS') & (name != 'NCAPS') & (name != 'STR') & (name != 'WEIGHT') & (name != 'PIXEL')):
-                self.metadata.update({string.lower(name):{'bscale':info['bscale'][i],
-                                                          'bzero':info['bzero'][i],
-                                                          'dim':info['dim'][i],
-                                                          'disp':info['disp'][i],
-                                                          'format':info['format'][i],
-                                                          'name':info['name'][i],
-                                                          'null':info['null'][i],
-                                                          'start':info['start'][i],
-                                                          'unit':info['unit'][i]}})
-                # fits files use bzero and bscale along with signed int data types to represent unsigned integers
+               # fits files use bzero and bscale along with signed int data types to represent unsigned integers
                 # e.g. for an unsigned 32 bit integer, the format code will be 'J' (same as for a signed 32 bit int),
                 # bscale will be 1 and bzero will be 2**31.  The data gets automatically converted as data=bscale*rawdata+bzero
                 if (info['bscale'][i] == 1.0) & (info['bzero'][i] is not ''):
@@ -613,19 +664,20 @@ class Mangle:
                     if ((precision == '16') | (precision == '32') | (precision == '64')) & (info['bzero'][i]>0):
                         #define a numpy data type that is an unsigned int of the given precision
                         dt=np.typeDict['uint'+precision]
-                        vars(self)[string.lower(name)] = dt(data[name])
+                        col = dt(data[name])
                     #for 8 bit ints, it's vice-versa: fits natively has an unsigned 8 bit int and requires bzero to convert to signed.
                     elif (precision == '8') & (info['bzero'][i]<0):
                         #define a numpy data type that is an unsigned int of the given precision 
                         dt=np.typeDict['int'+precision]
-                        vars(self)[string.lower(name)] = dt(data[name])
+                        col = dt(data[name])
                     else:
-                        vars(self)[string.lower(name)] = data[name]
+                        col = data[name]
                 else:
-                    vars(self)[string.lower(name)] = data[name]
-                self.names+=[string.lower(name)]
+                    col = data[name]
+                self.add_column(string.lower(name), col, format=info['format'][i], asciiformat=None, unit=info['unit'][i], null=info['null'][i], bscale=info['bscale'][i], bzero=info['bzero'][i], disp=info['disp'][i], start=info['start'][i], dim=info['dim'][i])
 
-    def add_column(self,name, data, format=None, unit=None, null=None, bscale=None, bzero=None, disp=None, start=None, dim=None):
+
+    def add_column(self,name, data, format=None, asciiformat=None, unit=None, null=None, bscale=None, bzero=None, disp=None, start=None, dim=None):
         """Add a column to the polygons object. Keyword arguments are the same as the pyfits.Column constructor.
         Format will be detected automatically from the data type if not provided."""
         #check to make sure length of array matches number of polygons
@@ -647,58 +699,74 @@ class Mangle:
         else:
             dt=data.dtype.type
                 
-        if format is None:    
-            #detect appropriate format based on numpy type
-            #use bzero and bscale for unsigned integers                  
-            if dt is np.float64:
-                ftype='D'
-            elif dt is np.int32:
-                ftype='J'
-            elif dt is np.uint32:
-                ftype='J'
-                bzero=2**31
-                bscale=1
-            elif dt is np.string_:
-                #add the string length to the dimensions in order to store an array of strings
-                dims=(data.dtype.itemsize,)+data.shape[1:]
-                size=str(np.prod(dims))
-                if len(dims)>1:
-                    if dim is None:
-                        dim=str(dims)
+        #detect appropriate format based on numpy type
+        #use bzero and bscale for unsigned integers                  
+        if dt is np.float64:
+            ftype='D'
+            asciiformat='%.15g'
+        elif dt is np.int32:
+            ftype='J'
+            asciiformat='%d'
+        elif dt is np.uint32:
+            ftype='J'
+            bzero=2**31
+            bscale=1
+            asciiformat='%u'
+        elif dt is np.string_:
+            #add the string length to the dimensions in order to store an array of strings
+            dims=(data.dtype.itemsize,)+data.shape[1:]
+            size=str(np.prod(dims))
+            if len(dims)>1:
+                if dim is None:
+                    dim=str(dims)
                 ftype='A'
-            elif dt is np.float32:
-                ftype='E'
-            elif dt is np.int16:
-                ftype='I'
-            elif dt is np.uint16:
-                ftype='I'
-                bzero=2**15
-                bscale=1
-            elif dt is np.int64:
-                ftype='K'
-            elif dt is np.uint64:
-                #64 bit unsigned ints don't work right now b/c scaling is done by converting bzero to a double, which doesn't have enough precision
-                #format='K'
-                #bzero=2**63
-                #use 32 bit unsigned int instead:
-                type='J'
-                bzero=2**31
-                bscale=1
-            elif dt is np.complex64:
-                ftype='C'
-            elif dt is np.complex128:
-                ftype='M'
-            elif dt is np.bool_:
-                ftype='L'
-            elif dt is np.int8:
-                ftype='B'
-                bzero=-2**7
-                bscale=1
-            elif dt is np.uint8:
-                ftype='B'
-            else:
-                raise RuntimeError('data type '+str(dt)+' not supported')
-                
+            asciiformat='%s'
+        elif dt is np.float32:
+            ftype='E'
+            asciiformat='%.6g'
+        elif dt is np.int16:
+            ftype='I'
+            asciiformat='%d'
+        elif dt is np.uint16:
+            ftype='I'
+            bzero=2**15
+            bscale=1
+            asciiformat='%u'
+        elif dt is np.int64:
+            ftype='K'
+            asciiformat='%d'
+        elif dt is np.uint64:
+            #64 bit unsigned ints don't work right now b/c scaling is done by converting bzero to a double, which doesn't have enough precision
+            #format='K'
+            #bzero=2**63
+            #use 32 bit unsigned int instead:
+            type='J'
+            bzero=2**31
+            bscale=1
+            asciiformat='%d'
+        elif dt is np.complex64:
+            ftype='C'
+            asciiformat=None
+        elif dt is np.complex128:
+            ftype='M'
+            asciiformat=None
+        elif dt is np.bool_:
+            ftype='L'
+            asciiformat='%d'
+        elif dt is np.int8:
+            ftype='B'
+            bzero=-2**7
+            bscale=1
+            asciiformat='%d'
+        elif dt is np.uint8:
+            ftype='B'
+            asciiformat='%u'
+        else:
+            raise RuntimeError('data type '+str(dt)+' not supported')
+
+        if size=='P':
+            asciiformat=None
+        if format is None:
             format=size+ftype
             if size=='P':
                 format=format+'()'
@@ -708,6 +776,7 @@ class Mangle:
                                     'dim':dim,
                                     'disp':disp,
                                     'format':format,
+                                    'asciiformat':asciiformat,
                                     'name':string.upper(name),
                                     'null':null,
                                     'start':start,
@@ -775,8 +844,9 @@ class Mangle:
 
         #make a primary HDU for the table and add metadata
         primary=pyfits.PrimaryHDU()
-        primary.header.update('PIXRES',self.pixelization[0])
-        primary.header.update('PIXTYPE',self.pixelization[1])
+        if self.pixelization is not None:
+            primary.header.update('PIXRES',self.pixelization[0])
+            primary.header.update('PIXTYPE',self.pixelization[1])    
         primary.header.update('SNAPPED',self.snapped)
         primary.header.update('BLKNIZED',self.balkanized)
 
@@ -785,7 +855,7 @@ class Mangle:
         tablehdus=pyfits.HDUList([primary, table])
         tablehdus.writeto(filename,clobber=clobber)
 
-    def __init__(self,filename,db=False,keep_ids=False):
+    def __init__(self,filename,db=False,keep_ids=False,read_extra_columns=False):
         """
         Initialize Mangle with a file containing the polygon mask.
         If db == True, filename is expected to be a windows db table.
@@ -804,7 +874,7 @@ class Mangle:
                 raise IOError,"Can not find %s"%filename
             self.filename = filename # useful to keep this around.
             if (filename[-4:] == '.ply') | (filename[-4:] == '.pol'):
-                self.read_ply_file(filename)
+                self.read_ply_file(filename,read_extra_columns=read_extra_columns)
             elif filename[-5:] == '.fits':
                 self.read_fits_file(filename)
             else:
@@ -845,3 +915,16 @@ class Mangle:
                 self.polyids=arange(0,self.npoly,dtype=int)
      #...
 #...
+
+#def quad2doubledouble(quad):
+#    if quad.dtype==np.float128:
+#        t=(2**57+1)*quad
+#        hi=t-(t-quad)
+#        lo=quad-hi
+#        doubledouble=np.complex128(hi+lo*j)
+#    else:
+#        raise TypeError("error: quad value is wrong datatype")
+#    return doubledouble        
+    
+
+#def doubledoubletoquad(doubledouble):
