@@ -42,12 +42,16 @@ Requires numpy > 1.0, and pyfits > 2.3.1 for loading fits files.
 #        27-Sep-2011 mecs: (added metadata structure to track of extra columns and methods to add and remove columns)
 #        27-Sep-2011 mecs: (added support for reading and writing variable length array columns)
 #        03-Nov-2011 mecs: (added support to read and write extra columns in ascii format)
+#        29-Nov-2011 mecs: (fixed various bugs with importing ascii files with space before header keywords or negative weights/ids)
+#        30-Nov-2011 mecs: (integrated with my graphmask plotting module)
+
 
 import os
 import re
 import string
 import copy
 from itertools import izip
+import graphmask
 
 try:
     #raise ImportError # uncomment this to force pure-python code
@@ -381,47 +385,76 @@ class Mangle:
         return mng2
     #...
 
-    def graphics(self):
-        """Return an array of edge points, to plot these polygons.
-
-        Calls the command-line 'poly2poly' to generate a temporary graphics
-        file and return the output.
-
-        The returned array has len() == npoly, with each element
-        being an array of ra/dec pairs. Plot a polygon with, e.g.:
-            polys = mng.graphics()
-            pylab.plot(polys[0]['ra'],polys[0]['dec'])
-        or all of them (this may take a while,if there are a lot of polygons):
-            polys = mng.graphics()
-            for poly in polys:
-                pylab.plot(poly['ra'],poly['dec'])
-        """
-        import tempfile
-        import subprocess
-        tempIn = tempfile.NamedTemporaryFile('rw+b')
-        self.writeply(tempIn.name)
-        tempOut = tempfile.NamedTemporaryFile('rw+b')
-        call = ' '.join(('poly2poly -q -ol30',tempIn.name,tempOut.name))
-        subprocess.call(call,shell=True)
-        # NOTE: poly2poly -ol always outputs a separate weight file.
-        tempIn.close()
-        # the mangle list format has polygons delimited by NaN pairs.
-        dtype=[('ra','>f8'),('dec','>f8')]
-        data=np.loadtxt(tempOut,dtype=dtype)
-        weights=np.loadtxt(tempOut.name+'.weight',dtype=dtype)
-        tempOut.close()
-        os.remove(tempOut.name+'.weight')
-        i = 0
-        polys = np.empty(len(weights),dtype='object')
-        temp = []
-        for x in data:
-            if np.isnan(x[0]) and np.isnan(x[1]):
-                polys[i] = np.array(temp,dtype=dtype)
-                temp = []
-                i += 1
+    def drawpolys(self,skymap=None,**kwargs):
+        if 'graphicsfilename' in kwargs:
+            graphicsfilename=kwargs.pop('graphicsfilename')
+        else:
+            graphicsfilename=None
+        if 'pointsper2pi' in kwargs:
+            pointsper2pi=kwargs.pop('pointsper2pi')
+        else:
+            pointsper2pi=None
+        if skymap is None:
+            if hasattr(self,'graphicsfilename'):
+                p,m=graphmask.plot_mangle_map(self.graphicsfilename,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi,**kwargs)
             else:
-                temp.append(x)
-        return polys
+                p,m=graphmask.plot_mangle_map(self,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi,**kwargs)
+        else:
+            m=skymap
+            if hasattr(self,'graphicsfilename'):
+                azel,weight=m.get_graphics_polygons(self.graphicsfilename,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi)
+            else:
+                azel,weight=m.get_graphics_polygons(self,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi) 
+            p=graphmask.draw_weighted_polygons(m.world2pix(azel),weight=weight,**kwargs)
+        if graphicsfilename is not None:
+            self.graphicsfilename=graphicsfilename
+        howmany=graphmask.expecting()
+        if howmany<2:
+            return p
+        else:
+            return p,m
+        
+    ## def graphics(self):
+    ##     """Return an array of edge points, to plot these polygons.
+
+    ##     Calls the command-line 'poly2poly' to generate a temporary graphics
+    ##     file and return the output.
+
+    ##     The returned array has len() == npoly, with each element
+    ##     being an array of ra/dec pairs. Plot a polygon with, e.g.:
+    ##         polys = mng.graphics()
+    ##         pylab.plot(polys[0]['ra'],polys[0]['dec'])
+    ##     or all of them (this may take a while,if there are a lot of polygons):
+    ##         polys = mng.graphics()
+    ##         for poly in polys:
+    ##             pylab.plot(poly['ra'],poly['dec'])
+    ##     """
+    ##     import tempfile
+    ##     import subprocess
+    ##     tempIn = tempfile.NamedTemporaryFile('rw+b')
+    ##     self.writeply(tempIn.name)
+    ##     tempOut = tempfile.NamedTemporaryFile('rw+b')
+    ##     call = ' '.join(('poly2poly -q -ol30',tempIn.name,tempOut.name))
+    ##     subprocess.call(call,shell=True)
+    ##     # NOTE: poly2poly -ol always outputs a separate weight file.
+    ##     tempIn.close()
+    ##     # the mangle list format has polygons delimited by NaN pairs.
+    ##     dtype=[('ra','>f8'),('dec','>f8')]
+    ##     data=np.loadtxt(tempOut,dtype=dtype)
+    ##     weights=np.loadtxt(tempOut.name+'.weight',dtype=dtype)
+    ##     tempOut.close()
+    ##     os.remove(tempOut.name+'.weight')
+    ##     i = 0
+    ##     polys = np.empty(len(weights),dtype='object')
+    ##     temp = []
+    ##     for x in data:
+    ##         if np.isnan(x[0]) and np.isnan(x[1]):
+    ##             polys[i] = np.array(temp,dtype=dtype)
+    ##             temp = []
+    ##             i += 1
+    ##         else:
+    ##             temp.append(x)
+    ##     return polys
     #...
 
     def read_ply_file(self,filename,read_extra_columns=False):
@@ -429,15 +462,15 @@ class Mangle:
         """Read in polygons from a .ply file."""
         # It's useful to pre-compile a regular expression for a mangle line
         # defining a polygon.
-        rePoly = re.compile(r"polygon\s+(\d+)\s+\(\s*(\d+)\s+caps")
-        reWeight = re.compile(r"(\d*\.?\d+)\s+weight")
-        reArea = re.compile(r"(\d*\.?\d+)\s+str")
-        rePixel = re.compile(r"(\d*)\s+pixel")
-        rePixelization = re.compile(r"pixelization\s+(\d+)([sd])")
-        rePolycount = re.compile(r"(\d+)\s+polygons")
+        rePoly = re.compile(r"polygon\s+(-*\d+)\s+\(\s*(\d+)\s+caps")
+        reWeight = re.compile(r"(-*\d*\.?\d+)\s+weight")
+        reArea = re.compile(r"(-*\d*\.?\d+)\s+str")
+        rePixel = re.compile(r"(-*\d*)\s+pixel")
+        rePixelization = re.compile(r"pixelization\s+(-*\d+)([sd])")
+        rePolycount = re.compile(r"(-*\d+)\s+polygons")
         reSnapped = re.compile(r"snapped")
         reBalkanized = re.compile(r"balkanized")
-        reHeaderKeywords = re.compile(r"(\d+)\s+polygons|pixelization\s+(\d+)([sd])|balkanized|snapped")
+        reHeaderKeywords = re.compile(r"(-*\d+)\s+polygons|pixelization\s+(-*\d+)([sd])|balkanized|snapped")
         #
         ff = open(filename,"r")
         self.npoly = None
@@ -449,17 +482,17 @@ class Mangle:
         line = ff.readline()
         #loop to read through header lines - stops when rePoly.match(line) returns something, indicating that we've
         #made it through the header and have reached a polygon.
-        while (rePoly.match(line) is None)&(len(line)>0):
-            sss=reHeaderKeywords.match(line)
+        while (rePoly.search(line) is None)&(len(line)>0):
+            sss=reHeaderKeywords.search(line)
             #if line starts with a header keyword, add the info as metadata
             if sss is not None:
-                if rePolycount.match(line) is not None:
+                if rePolycount.search(line) is not None:
                     self.npoly = int( sss.group(1) )
-                elif rePixelization.match(line) is not None:
+                elif rePixelization.search(line) is not None:
                     self.pixelization = (int(sss.group(2)),sss.group(3))
-                elif reSnapped.match(line) is not None: 
+                elif reSnapped.search(line) is not None: 
                     self.snapped = True
-                elif reBalkanized.match(line) is not None:
+                elif reBalkanized.search(line) is not None:
                     self.balkanized = True
             #print warning if the line doesn't match any of the header keywords
             else:
@@ -477,11 +510,11 @@ class Mangle:
         self.ncaps = zeros(self.npoly,dtype=int)
         self.pixels = zeros(self.npoly,dtype=int)
         counter = 0
-        ss = rePoly.match(line)  
+        ss = rePoly.search(line)
         while len(line)>0:
             while (ss==None)&(len(line)>0):
                 line = ff.readline()
-                ss   = rePoly.match(line)
+                ss   = rePoly.search(line)
             if len(line)>0:
                 ipoly= int(ss.group(1))
                 ncap = int(ss.group(2))
@@ -619,14 +652,14 @@ class Mangle:
 
             for card in header.ascardlist():
                 line=str(card)
-                sss=reHeaderKeywords.match(line)
+                sss=reHeaderKeywords.search(line)
             #if line starts with a header keyword, add the info as metadata
                 if sss is not None:
-                    if rePixelization.match(line) is not None:
+                    if rePixelization.search(line) is not None:
                         self.pixelization = (int(sss.group(1)),sss.group(2))
-                    elif reSnapped.match(line) is not None: 
+                    elif reSnapped.search(line) is not None: 
                         self.snapped = True
-                    elif reBalkanized.match(line) is not None:
+                    elif reBalkanized.search(line) is not None:
                         self.balkanized = True
         
         # pull out the relevant fields
@@ -790,7 +823,7 @@ class Mangle:
         del self.metadata[name]
         self.names.remove(name)
         
-    def write_fits_file(self,filename,clobber=True):
+    def write_fits_file(self,filename,clobber=True,keep_ids=False):
         """Write polygons to a .fits file."""
 
         #define size of xcaps and cmcaps arrays based on the maximum number of caps in any polygon, fill extra spaces with zeros
@@ -801,12 +834,18 @@ class Mangle:
         cmcaps=zeros((len(self.polylist),maxn))
 
         #run through polygons and massage caps data in polylist to fit into cmcaps and xcaps arrays
-        for i,n,poly in izip(self.polyids,self.ncaps,self.polylist):
+        polyids=arange(0,self.npoly,dtype=int)
+        for i,n,poly in izip(polyids,self.ncaps,self.polylist):
             cmcaps[i,:n]= poly[...,-1]
             xcaps[i,:n]=poly[...,:-1]
 
         #reshape xcaps array to have dimensions (npolys, 3*maxn) rather than (npolys,maxn,3) to keep pyfits happy  
         xcaps=xcaps.reshape(-1,3*maxn)
+
+        #if keeping polygon id number in fits file, add 'ids' column
+        if keep_ids == True:
+            if 'ids' not in self.names:
+                self.add_column('ids',self.polyids)
 
         #define pyfits columns for basic polygon file elements
         xcaps_col=pyfits.Column(name='XCAPS',format=str(3*maxn)+'D',dim='( 3, '+str(maxn)+')',array=xcaps)

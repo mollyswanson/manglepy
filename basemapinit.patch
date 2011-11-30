@@ -1,0 +1,25 @@
+899,902d898
+<         if (self.projection in _pseudocyl) or (self.projection in _cylproj):
+<             lon_0=self.projparams['lon_0']
+<         else:
+<             lon_0=0.
+905c901
+<                 x = 2.*lon_0-x
+---
+>                 x = -x
+907c903
+<                 x = [2.*lon_0-xx for xx in x]
+---
+>                 x = [-xx for xx in x]
+911c907
+<                 xout = 2.*lon_0-xout
+---
+>                 xout = -xout
+913c909
+<                 xout = [2.*lon_0-xx for xx in xout]
+---
+>                 xout = [-xx for xx in xout]
+1909c1905
+<                 split = dist > 500000./6370997.0*self.projparams['R']
+---
+>                 split = dist > 500000.
