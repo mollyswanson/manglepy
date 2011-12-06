@@ -316,7 +316,27 @@ class Mangle:
         self.pixels.flat = pixel
 
     def writeply(self,filename,keep_ids=False,write_extra_columns=False,weight=None):
-        """Write a Mangle-formatted polygon file containing these polygons."""
+        """
+        Write a Mangle-formatted polygon file containing these polygons.
+
+        If keep_ids=True, polygon ids from self.ids will be written as the polygon ids.
+
+        If a name in self.names is provided as the weight argument, output polygons
+        will have their weights given by the values in that column.
+        
+        If write_extra_columns=True, supplemental files containing additional information
+        will be written in this format:
+        for a polygon file named poly.pol or poly_obstime.pol
+        (to denote that the polygons are weighted by observation time)
+        Additional columns will be written as poly.maglims, poly.obstime, poly.XXX where XXX
+        is the name of the column.
+        If a name is provided as the weight argument, e.g., weight='obstime', then that
+        column will be written as the weights, and if 'obstime' is contained in the filename,
+        e.g., polys_obstime.pol, additional columns will be written as poly.XXX (not poly_obstime.XXX).
+        Additional column files will have number of rows equal to the number of polygons. 
+        This allows alternate weights and extra information about the polygons that are
+        stored in a fits file to be written in ascii format.        
+        """
         ff = open(filename,"w")
         ff.write("%d polygons\n"%len(self.polylist))
         if self.pixelization is not None:
@@ -330,7 +350,6 @@ class Mangle:
         else:
             ids_to_write=self.polyids
         for i in range(self.npoly):
-            # TBD: add writing pixel information to the output file.
             str = "polygon %10d ( %d caps,"%(ids_to_write[i],len(self.polylist[i]))
             str+= " %.8f weight, %d pixel, %.15f str):\n"%(self.weights[i],self.pixels[i],self.areas[i])
             ff.write(str)
@@ -386,6 +405,130 @@ class Mangle:
     #...
 
     def drawpolys(self,skymap=None,**kwargs):
+    """
+    Function to draw a set of mangle polygons.  Wrapper for graphmask.plot_mangle_map
+           
+    Return value(s): - matplotlib.collections.PolyCollection object containing
+                       the polygons that were plotted
+                     - (optional) Skymap instance defining the map projection
+                     e.g. : p=plot_mangle_map('mypolys.pol')
+                            # p is the plotted PolyCollection
+                            p,m=plot_mangle_map('mypolys.pol')
+                            # p is the plotted PolyCollection, m is the Skymap instance
+
+    Optional keyword arguments:
+
+    skymap: a Skymap instance defining the map projection to plot in.  Use this
+            to plot additional polygons in the same plot, e.g.,
+            polys1=mangle.Mangle('polys1.pol')
+            polys2=mangle.Mangle('polys2.pol')
+            p1,m=polys1.drawpolys()
+            p2=polys2.drawpolys(skymap=m)
+
+    outfilename: name of image file to save.  if None, just draw on screen.
+                 Accepts any format valid for matplotlib's savefig
+                 (usually png, pdf, ps, eps, and svg)
+
+    graphicsfilename: name of graphics (.list format) file to save to speed
+                      up subsequent plotting (with graphmask.plot_mangle_map).
+                      Should have a .list suffix.
+                      e.g. : mypolys=mangle.Mangle('mypolys.pol')
+                             p,m=mypolys.drawpolys(graphicsfilename='mypolys.list')
+                             #this takes a long time, and after looking at the plot you decide
+                             #it would be much better to plot the polygons in red.
+                             p=plot_mangle_map('mypolys.list',facecolor='r')
+                             #this plots much faster.
+
+                       Note that the .list file saved is projection-specific
+                       (and plot-range-specific) since the polygons are trimmed
+                       to the map projection region plotted.  If you change the
+                       projection or the plot range, you might need to use the
+                       original polygon file again.                      
+
+    pointsper2pi: number of points along each circle edge used in making the
+                  .list file with mangle's poly2poly.  default is 30.
+
+    cmap: colormap used to plot the weight values of the polygons.  Can be any
+          valid matplotlib colormap, or a string defining one, e.g. cmap=cm.jet
+          or cmap='jet'.  Default is 'gray_r' which plots black/grayscale polygons
+          on a white background.
+
+    plottitle: a title for the plot.
+
+    autoscale: if autoscale is True, the plot range will be determined by the
+               min and max azimuth and elevation of the polygons. Default is False.
+
+    enlarge_border: fraction to enlarge the range determined by autoscale to give
+                    a reasonable border around the plot.  Default is .1 (10%)
+
+    bgcolor: background color of the map.  If 'auto', use the color at the zero
+             value of the colormap.  Default is 'auto'.
+
+    drawgrid: if True, draw grid lines for azimuth and elevation (latitude and longitude)
+              and labels for them.
+
+    gridlinewidth: line width for the grid lines.  Use gridlinewidth=0 to draw
+                   axis labels but no grid lines.
+
+    minaz,maxaz,minel,maxel: if these are defined, use these values to define the
+                             corner regions of the plot.
+
+    cenaz: central azimuth value to use for map projection (equiv to Basemap's lon_0)
+
+    cenel: central elevation to use for map projeciton (equiv to Basemap's lat_0)
+
+    Additional keyword arguments are passed to the Skymap class, which accepts
+    any keyword arguments recognized by the Basemap class.  Commonly used ones are:
+
+    projection: the map projection used by Basemap.  print the basemap module variable
+                ``supported_projections`` to see a list of the options.
+
+    width, height: the width and height of the region to be plotted,
+                   in units of degrees on the sky.  cenaz,cenel,width,height
+                   can be used instead of minaz,maxaz,minel,maxel to define
+                   the plotted region.
+
+    Further additional keyword arguments not accepted by Skymap/Basemap are passed
+    to the draw_weighted_polygons function, which accepts
+
+    holes: can be 'cw'==clockwise,'ccw'==counterclockwise, or None.  If 'cw' ('ccw'),
+           polygons with the edge points ordered clockwise (counterclockwise) are
+           treated as holes and plotted in the background color.  Mangle polygons
+           that have holes in them will be written as separate polygons in the .list
+           format, with the exterior border in counterclockwise order and the holes
+           in clockwise order, so 'cw' is the default.
+           If you know your polygons have no holes, using None can speed up
+           the plotting.
+           Note that clockwise and counterclockwise are defined as when looking
+           up at the sky, so it is reversed from what geographers would expect
+           from looking down at the surface of the Earth.
+
+    emptyweight: value of polygon weight indicating a polygon that should not be plotted.
+                 Default is 0, but emptyweight can be set to something else to allow for
+                 weights whose allowed value range includes 0.
+
+    draw_colorbar: if True, draw a colorbar showing the color scale of the weight
+                   values plotted.  Default is True unless all weight values are
+                   equal. If you want to control how the colorbar is drawn,
+                   use draw_colorbar=False and then use the returned
+                   PolyCollection object as your ScalarMappable object.
+
+    vmin,vmax: minimum and maximum values for the colormap scale.
+
+    Still further keywords are passed on to the PolyCollection plotter, which can
+    used to customize the appearance of the plotted polygons, e.g.,
+    facecolor='red',edgecolor='black',linewidth=0.5.
+
+    Examples:
+     #plot overlapping SDSS plates in a small example patch of sky,
+     #using a transparent face color to illustrate the overlap.
+     dr9plates=mangle.Mangle('dr9plates.pol')
+     dr9plates.drawpolys(minaz=117.5,maxaz=125.5,minel=30, maxel=36.5,facecolor=[0, 0, 1, .2],linewidth=0)
+     #plot a boss geometry file starting from a .fits file, and save a graphics .list file for faster plotting later
+     geometry=mangle.Mangle('boss_geometry_2011_05_20.fits')
+     p,m=geometry.drawpolys(graphicsfilename='boss_geometry_2011_05_20.list',cenaz=270,gridlinewidth=.1,projection='moll')
+    """
+         
         if 'graphicsfilename' in kwargs:
             graphicsfilename=kwargs.pop('graphicsfilename')
         else:
@@ -458,8 +601,20 @@ class Mangle:
     #...
 
     def read_ply_file(self,filename,read_extra_columns=False):
+        """
+        Read in polygons from a .ply file.
+
+        If read_extra_columns=True, supplemental files containing additional information
+        will be read in this format:
+        For a polygon file named poly.pol or poly_obstime.pol (to denote that the polygons
+        are weighted by observation time), additional columns can be provided as poly.maglims,
+        poly.obstime, poly.XXX where XXX is whatever tag applies to the column.
+        An additional column will be added to the mangle polygon object named XXX. 
+        Additional column files should have number of rows equal to the number of
+        polygons in poly.pol. This allows alternate weights and extra information about the
+        polygons that are stored in a fits file to be written in ascii format      
+        """
         import glob
-        """Read in polygons from a .ply file."""
         # It's useful to pre-compile a regular expression for a mangle line
         # defining a polygon.
         rePoly = re.compile(r"polygon\s+(-*\d+)\s+\(\s*(\d+)\s+caps")
@@ -711,8 +866,11 @@ class Mangle:
 
 
     def add_column(self,name, data, format=None, asciiformat=None, unit=None, null=None, bscale=None, bzero=None, disp=None, start=None, dim=None):
-        """Add a column to the polygons object. Keyword arguments are the same as the pyfits.Column constructor.
-        Format will be detected automatically from the data type if not provided."""
+        """
+        Add a column to the polygons object. Keyword arguments are the
+        same as the pyfits.Column constructor.
+        Format will be detected automatically from the data type if not provided.
+        """
         #check to make sure length of array matches number of polygons
         if len(data) != self.npoly:
             raise RuntimeError('Length of array does not match number of polygons.')
@@ -824,7 +982,13 @@ class Mangle:
         self.names.remove(name)
         
     def write_fits_file(self,filename,clobber=True,keep_ids=False):
-        """Write polygons to a .fits file."""
+        """Write polygons to a .fits file.
+
+        If clobber=True, overwrite existing file with the same name.
+
+        If keep_ids=True, write id numbers in self.ids (or self.polyids
+        if self.ids does not exist) as 'ids' column in fits file.        
+        """
 
         #define size of xcaps and cmcaps arrays based on the maximum number of caps in any polygon, fill extra spaces with zeros
         maxn=self.ncaps.max()
@@ -898,6 +1062,19 @@ class Mangle:
         """
         Initialize Mangle with a file containing the polygon mask.
         If db == True, filename is expected to be a windows db table.
+
+        If keep_ids=True, read in input id numbers from file and keep as
+        self.ids column, and use self.polyids as a 0 through npoly index
+
+        If read_extra_columns=True, supplemental files for ascii polygon (.ply/.pol) files
+        containing additional information will be read in this format:
+        For a polygon file named poly.pol or poly_obstime.pol (to denote that the polygons
+        are weighted by observation time), additional columns can be provided as poly.maglims,
+        poly.obstime, poly.XXX where XXX is whatever tag applies to the column.
+        An additional column will be added to the mangle polygon object named XXX. 
+        Additional column files should have number of rows equal to the number of
+        polygons in poly.pol. This allows alternate weights and extra information about the
+        polygons that are stored in a fits file to be written in ascii format    
 
         Acceptable formats (determined from the file extension):
             .ply or .pol <-- Mangle polygon files:
