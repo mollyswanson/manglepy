@@ -44,6 +44,7 @@ Requires numpy > 1.0, and pyfits > 2.3.1 for loading fits files.
 #        03-Nov-2011 mecs: (added support to read and write extra columns in ascii format)
 #        29-Nov-2011 mecs: (fixed various bugs with importing ascii files with space before header keywords or negative weights/ids)
 #        30-Nov-2011 mecs: (integrated with my graphmask plotting module)
+#        21-Dec-2011 mecs: (added capability to use long doubles as in the real*10 version of mangle, added sortpolys function)
 
 
 import os
@@ -69,6 +70,20 @@ import numpy as np
 from numpy import array,sin,cos,fabs,pi,empty,zeros,ones,argsort,take,arange
 import pyfits
 
+try:
+    import longdouble_utils
+except ImportError as e:
+    uselongdoubles=False
+    print "Error, could not import longdouble_utils:",e
+    print "Mangle routines will use double precision for storing caps."
+    print "To use longdouble precision (compatible with real*10 version of mangle), install mpmath:"
+    print "http://code.google.com/p/mpmath/"
+    print "and longdouble_utils:"
+    print "[add link to longdouble_utils on github]"
+else:
+    uselongdoubles=True
+    pi_long=np.arctan(np.longdouble(1))*4
+        
 class Mangle:
     """Implements basic mangle routines to identify polygons containing points.
     
@@ -155,8 +170,12 @@ class Mangle:
         """
         test = ones(len(x0),dtype=bool)
         if useUtils:
-            for cap in polygon:
-                test &= mangle_utils._incap(cap,x0,y0,z0)
+            if self.uselongdoubles:
+                for cap in polygon:
+                    test &= mangle_utils._incapl(cap,x0,y0,z0)
+            else:
+                for cap in polygon:
+                    test &= mangle_utils._incap(cap,x0,y0,z0)
         else:
             for cap in polygon:
                 test &= self.incap_vec(cap,x0,y0,z0)
@@ -183,9 +202,14 @@ class Mangle:
 
         ra/dec should be numpy arrays in decimal degrees.
         """
-        # force an upconversion to double, in case ra/dec are float32
-        theta = pi/180. * (90.0-np.float64(dec))
-        phi = pi/180. * np.float64(ra)
+        if self.uselongdoubles:
+            # force an upconversion to longdouble, in case ra/dec are float32 or float64
+            theta = pi_long/180. * (90.0-np.longdouble(dec))
+            phi = pi_long/180. * np.longdouble(ra)
+        else:
+            # force an upconversion to double, in case ra/dec are float32
+            theta = pi/180. * (90.0-np.float64(dec))
+            phi = pi/180. * np.float64(ra)
         sintheta = sin(theta)
         x0 = sintheta*cos(phi)
         y0 = sintheta*sin(phi)
@@ -233,8 +257,12 @@ class Mangle:
         
         ra,dec should be in decimal degrees.
         """
-        theta = pi/180. * (90.0-dec)
-        phi   = pi/180. * ra
+        if self.uselongdoubles:
+            theta = pi_long/180. * (90.0-dec)
+            phi   = pi_long/180. * ra
+        else:
+            theta = pi/180. * (90.0-dec)
+            phi   = pi/180. * ra
         ipoly = -1
         for i,poly in zip(self.polyids,self.polylist):
             if self.inpoly_spam(poly,theta,phi):
@@ -247,8 +275,12 @@ class Mangle:
         
         ra,dec should be in decimal degrees.
         """
-        theta = pi/180. * (90.0-dec)
-        phi   = pi/180. * ra
+        if self.uselongdoubles:
+            theta = pi_long/180. * (90.0-dec)
+            phi   = pi_long/180. * ra
+        else:
+            theta = pi/180. * (90.0-dec)
+            phi   = pi/180. * ra
         weight= -1
         for w,poly in zip(self.weights,self.polylist):
             if self.inpoly_spam(poly,theta,phi):
@@ -263,8 +295,12 @@ class Mangle:
 
         Return value is in steradians.
         """
-        theta = pi/180. * (90.0-dec)
-        phi   = pi/180. * ra
+        if self.uselongdoubles:
+            theta = pi_long/180. * (90.0-dec)
+            phi   = pi_long/180. * ra
+        else:
+            theta = pi/180. * (90.0-dec)
+            phi   = pi/180. * ra
         area  = -1.0
         for a,poly in izip(self.areas,self.polylist):
             if self.inpoly_spam(poly,theta,phi):
@@ -304,7 +340,7 @@ class Mangle:
         self.pixel[polyid] = pixel
 
     def set_allarea(self,area):
-        """Set the area of all polygons to weight."""
+        """Set the area of all polygons to area."""
         self.areas.flat = area
 
     def set_allweight(self,weight):
@@ -339,6 +375,7 @@ class Mangle:
         """
         ff = open(filename,"w")
         ff.write("%d polygons\n"%len(self.polylist))
+        ff.write("real %d\n"%self.real)
         if self.pixelization is not None:
             ff.write("pixelization %d%s\n"%(self.pixelization[0],self.pixelization[1]))
         if self.snapped == True:
@@ -351,11 +388,23 @@ class Mangle:
             ids_to_write=self.polyids
         for i in range(self.npoly):
             str = "polygon %10d ( %d caps,"%(ids_to_write[i],len(self.polylist[i]))
-            str+= " %.8f weight, %d pixel, %.15f str):\n"%(self.weights[i],self.pixels[i],self.areas[i])
+            if self.uselongdoubles:
+                weightstr=longdouble_utils.longdouble2string(self.weights[i],n=19)
+                areastr=longdouble_utils.longdouble2string(self.areas[i],n=19)
+                str+= " %s weight, %d pixel, %s str):\n"%(weightstr,self.pixels[i],areastr)
+            else:
+                str+= " %.15g weight, %d pixel, %.15g str):\n"%(self.weights[i],self.pixels[i],self.areas[i])
             ff.write(str)
-            for cap in self.polylist[i]:
-                ff.write("%25.20f %25.20f %25.20f %25.20f\n"%\
-                  (cap[0],cap[1],cap[2],cap[3]))
+            if self.uselongdoubles:
+                for cap in self.polylist[i]:
+                    capstr=[longdouble_utils.longdouble2string(c,n=19) for c in cap]
+                    ff.write(" %s %s %s %s\n"%\
+                             (capstr[0],capstr[1],capstr[2],capstr[3]))                    
+            else:
+                for cap in self.polylist[i]:
+                    ff.write(" %.15g %.15g %.15g %.15g\n"%\
+                             (cap[0],cap[1],cap[2],cap[3]))
+
         ff.close()
 
         #write extra columns stored in this format:
@@ -404,8 +453,19 @@ class Mangle:
         return mng2
     #...
 
+    def sortpolys(self,sortbycolumn='polyids'):
+        sorter = argsort(vars(self)[sortbycolumn])
+        self.polylist = take(self.polylist,sorter)
+        self.weights = self.weights[sorter]
+        self.areas = self.areas[sorter]
+        self.polyids = self.polyids[sorter]
+        self.ncaps = self.ncaps[sorter]
+        self.pixels = self.pixels[sorter]
+        for name in self.names:
+            vars(self)[name]=vars(self)[name][sorter]
+
     def drawpolys(self,skymap=None,**kwargs):
-    """
+        """
     Function to draw a set of mangle polygons.  Wrapper for graphmask.plot_mangle_map
            
     Return value(s): - matplotlib.collections.PolyCollection object containing
@@ -527,7 +587,7 @@ class Mangle:
      #plot a boss geometry file starting from a .fits file, and save a graphics .list file for faster plotting later
      geometry=mangle.Mangle('boss_geometry_2011_05_20.fits')
      p,m=geometry.drawpolys(graphicsfilename='boss_geometry_2011_05_20.list',cenaz=270,gridlinewidth=.1,projection='moll')
-    """
+     """
          
         if 'graphicsfilename' in kwargs:
             graphicsfilename=kwargs.pop('graphicsfilename')
@@ -600,7 +660,7 @@ class Mangle:
     ##     return polys
     #...
 
-    def read_ply_file(self,filename,read_extra_columns=False):
+    def read_ply_file(self,filename,read_extra_columns=False,real=None):
         """
         Read in polygons from a .ply file.
 
@@ -612,26 +672,32 @@ class Mangle:
         An additional column will be added to the mangle polygon object named XXX. 
         Additional column files should have number of rows equal to the number of
         polygons in poly.pol. This allows alternate weights and extra information about the
-        polygons that are stored in a fits file to be written in ascii format      
+        polygons that are stored in a fits file to be written in ascii format
+
+        'real' keyword indicates whether to use doubles (real=8) or long doubles (real=10)
+        as corresponding to the real*8 and real*10 versions of mangle. If real is None, it will
+        default to real=8 unless specified otherwise in the polygon file.
         """
         import glob
         # It's useful to pre-compile a regular expression for a mangle line
         # defining a polygon.
-        rePoly = re.compile(r"polygon\s+(-*\d+)\s+\(\s*(\d+)\s+caps")
-        reWeight = re.compile(r"(-*\d*\.?\d+)\s+weight")
-        reArea = re.compile(r"(-*\d*\.?\d+)\s+str")
-        rePixel = re.compile(r"(-*\d*)\s+pixel")
-        rePixelization = re.compile(r"pixelization\s+(-*\d+)([sd])")
-        rePolycount = re.compile(r"(-*\d+)\s+polygons")
+        rePoly = re.compile(r"polygon\s+([-+]?\d+)\s+\(\s*([-+]?\d+)\s+caps")
+        reWeight=re.compile(r"([-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?)\s+weight")
+        reArea=re.compile(r"([-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?)\s+str")
+        rePixel = re.compile(r"([-+]?\d+)\s+pixel")
+        rePixelization = re.compile(r"pixelization\s+([-+]?\d+)([sd])")
+        rePolycount = re.compile(r"([-+]?\d+)\s+polygons")
         reSnapped = re.compile(r"snapped")
         reBalkanized = re.compile(r"balkanized")
-        reHeaderKeywords = re.compile(r"(-*\d+)\s+polygons|pixelization\s+(-*\d+)([sd])|balkanized|snapped")
+        reReal = re.compile(r"real\s+([-+]?\d+)")
+        reHeaderKeywords = re.compile(r"([-+]?\d+)\s+polygons|pixelization\s+([-+]?\d+)([sd])|balkanized|snapped|real\s+([-+]?\d+)")
         #
         ff = open(filename,"r")
         self.npoly = None
         self.pixelization=None
         self.snapped=False
         self.balkanized=False
+        self.real=8
         self.names=[]
         self.metadata={}
         line = ff.readline()
@@ -643,6 +709,8 @@ class Mangle:
             if sss is not None:
                 if rePolycount.search(line) is not None:
                     self.npoly = int( sss.group(1) )
+                elif reReal.search(line) is not None:
+                    self.real = int( sss.group(4) )
                 elif rePixelization.search(line) is not None:
                     self.pixelization = (int(sss.group(2)),sss.group(3))
                 elif reSnapped.search(line) is not None: 
@@ -657,11 +725,26 @@ class Mangle:
                 
         if self.npoly is None:
             raise RuntimeError,"Did not find polygon count line \"n polygons\" in header of %s"%filename
-
+        #if a value for real is given in the keyword args, force it to override what's in the file
+        if real is not None:
+            self.real=real
+        #if self.real = 10 and longdouble_utils imported successfully, use long doubles. Otherwise just use float64
+        if self.real==10:
+            self.uselongdoubles=uselongdoubles
+        elif self.real==8:
+            self.uselongdoubles=False
+        else:
+            raise RuntimeError,"bad value for real: %d.  Should be real=8 to use doubles, real=10 to use long doubles."%self.real
+        if self.uselongdoubles:
+            floattype=np.longdouble
+            self.real=10
+        else:
+            floattype=np.float64
+            self.real=8
         self.polylist = empty(self.npoly,dtype='object')
         self.polyids = zeros(self.npoly,dtype=int)
-        self.areas = -ones(self.npoly)
-        self.weights = zeros(self.npoly)
+        self.areas = -ones(self.npoly,dtype=floattype)
+        self.weights = zeros(self.npoly,dtype=floattype)
         self.ncaps = zeros(self.npoly,dtype=int)
         self.pixels = zeros(self.npoly,dtype=int)
         counter = 0
@@ -676,15 +759,21 @@ class Mangle:
                 # Check to see if we have a weight.
                 ss = reWeight.search(line)
                 if ss==None:
-                    weight=0.0
+                    weight=floattype(0.0)
                 else:
-                    weight=float(ss.group(1))
+                    if self.uselongdoubles:
+                        weight=longdouble_utils.string2longdouble(ss.group(1))
+                    else:
+                        weight=float(ss.group(1))
                 # Check to see if we have an area.
                 ss = reArea.search(line)
                 if ss==None:
-                    area= -1.0
+                    area= floattype(-1.0)
                 else:
-                    area=float(ss.group(1))
+                    if self.uselongdoubles:
+                        area=longdouble_utils.string2longdouble(ss.group(1))
+                    else:
+                        area=float(ss.group(1))
                 # Check to see if we have a pixel number.
                 ss = rePixel.search(line)
                 if ss==None:
@@ -700,10 +789,13 @@ class Mangle:
                 # than a python list, using a numpy array for polylist slows
                 # down polyid(),area(),etc. by ~2x.  But it makes
                 # the get_XX() functions cleaner.
-                self.polylist[counter] = zeros((ncap,4))
+                self.polylist[counter] = zeros((ncap,4),dtype=floattype)
                 for i in range(ncap):
                     line = ff.readline()
-                    cap  = [float(x) for x in string.split(line)]
+                    if self.uselongdoubles:
+                        cap = [longdouble_utils.string2longdouble(x) for x in string.split(line)]
+                    else:
+                        cap  = [float(x) for x in string.split(line)]
                     self.polylist[counter][i] = cap
                 ss=None
                 counter += 1
@@ -779,7 +871,7 @@ class Mangle:
             self.polylist[i][...,-1] = w.cmcaps[:n]
     #...
 
-    def read_fits_file(self,filename):
+    def read_fits_file(self,filename,real=None):
         """Read in polygons from a .fits file."""
         data = pyfits.open(filename,memmap=True)[1].data
         header = pyfits.open(filename,memmap=True)[0].header
@@ -787,22 +879,25 @@ class Mangle:
         self.pixelization=None
         self.snapped=False
         self.balkanized=False
+        self.real=8
         self.names=[]
         self.formats=()
         names = data.dtype.names
         formats=data.formats
 
         #if mangle header keywords are present, use them
-        if ('PIXRES' in header.keys()) & ('PIXTYPE' in header.keys()) &  ('SNAPPED' in header.keys()) &  ('BLKNIZED' in header.keys()):
+        if ('PIXRES' in header.keys()) & ('PIXTYPE' in header.keys()) &  ('SNAPPED' in header.keys()) &  ('BLKNIZED' in header.keys())  &  ('REAL' in header.keys()):
             self.pixelization=(header['PIXRES'], header['PIXTYPE'])
             self.snapped=header['SNAPPED']
             self.balkanized=header['BLKNIZED']
+            self.real=header['REAL']
         #if mangle header keywords aren't present, check for text in header that looks like the header of an ascii polygon file:
         else:
-            rePixelization = re.compile(r"pixelization\s+(\d+)([sd])")
+            rePixelization = re.compile(r"pixelization\s+([-+]?\d+)([sd])")
             reSnapped = re.compile(r"snapped")
             reBalkanized = re.compile(r"balkanized")
-            reHeaderKeywords = re.compile(r"pixelization\s+(\d+)([sd])|balkanized|snapped")
+            reReal = re.compile(r"real\s+([-+]?\d+)")
+            reHeaderKeywords = re.compile(r"([-+]?\d+)\s+polygons|pixelization\s+([-+]?\d+)([sd])|balkanized|snapped|real\s+([-+]?\d+)")
             cardlist=header.ascardlist()
 
             for card in header.ascardlist():
@@ -812,22 +907,47 @@ class Mangle:
                 if sss is not None:
                     if rePixelization.search(line) is not None:
                         self.pixelization = (int(sss.group(1)),sss.group(2))
+                    elif reReal.search(line) is not None:
+                        self.real = int( sss.group(3) )
                     elif reSnapped.search(line) is not None: 
                         self.snapped = True
                     elif reBalkanized.search(line) is not None:
                         self.balkanized = True
-        
+
+        #if a value for real is given in the keyword args, force it to override what's in the file
+        if real is not None:
+            self.real=real
+        #if self.real = 10 and longdouble_utils imported successfully, use long doubles. Otherwise just use float64
+        if self.real==10:
+            self.uselongdoubles=uselongdoubles
+        elif self.real==8:
+            self.uselongdoubles=False
+        else:
+            raise RuntimeError,"bad value for real: %d.  Should be real=8 to use doubles, real=10 to use long doubles."%self.real
+        if self.uselongdoubles:
+            floattype=np.longdouble
+            self.real=10
+        else:
+            floattype=np.float64
+            self.real=8
+
         # pull out the relevant fields
         self.polylist = empty(self.npoly,dtype='object')
         self.polyids = arange(0,self.npoly,dtype=int)
         if 'STR' in names:
-            self.areas = data['STR']
+            if ('STR_X' in names) & (self.uselongdoubles):
+                self.areas=longdouble_utils.doubledouble2longdouble((data['STR'],data['STR_X']))
+            else:
+                self.areas = floattype(data['STR'])
         else:
-            self.areas = -ones(self.npoly)
+            self.areas = -ones(self.npoly,dtype=floattype)
         if 'WEIGHT' in names:
-            self.weights = data['WEIGHT']
+            if ('WEIGHT_X' in names) & (self.uselongdoubles):
+                self.weights=longdouble_utils.doubledouble2longdouble((data['WEIGHT'],data['WEIGHT_X']))
+            else:
+                self.weights = floattype(data['WEIGHT'])
         else:
-            self.weights = zeros(self.npoly)
+            self.weights = zeros(self.npoly,dtype=floattype)
         if 'PIXEL' in names:
             self.pixels = data['PIXEL']
         else:
@@ -835,15 +955,24 @@ class Mangle:
         self.npixels = len(set(self.pixels))
         self.ncaps = data['NCAPS']
         for i,n,x in izip(self.polyids,self.ncaps,data):
-            self.polylist[i] = zeros((n,4))
-            self.polylist[i][...,:-1] = x['XCAPS'].reshape(-1,1)[:3*n].reshape(n,3)
-            self.polylist[i][...,-1] = x['CMCAPS'].reshape(-1)[:n]
+            self.polylist[i] = zeros((n,4),dtype=floattype)
+            if ('XCAPS_X' in names) & (self.uselongdoubles):
+                xcaps=longdouble_utils.doubledouble2longdouble((x['XCAPS'],x['XCAPS_X']))
+            else:
+                xcaps=floattype(x['XCAPS'])
+            if ('CMCAPS_X' in names) & (self.uselongdoubles):
+                cmcaps=longdouble_utils.doubledouble2longdouble((x['CMCAPS'],x['CMCAPS_X']))
+            else:
+                cmcaps=floattype(x['MCAPS'])            
+            self.polylist[i][...,:-1] = xcaps.reshape(-1,1)[:3*n].reshape(n,3)
+            self.polylist[i][...,-1] = cmcaps.reshape(-1)[:n]
 
         # Read any additional fields that may be in the file
         info=data.columns.info(output=False)
         self.metadata={}
         for i, name in enumerate(names):
-            if ((name != 'XCAPS') & (name != 'CMCAPS') & (name != 'NCAPS') & (name != 'STR') & (name != 'WEIGHT') & (name != 'PIXEL')):
+            if ((name != 'XCAPS') & (name != 'CMCAPS') & (name != 'NCAPS') & (name != 'STR') & (name != 'WEIGHT') & (name != 'PIXEL')
+                & (name != 'XCAPS_X') & (name != 'CMCAPS_X') & (name != 'STR_X') & (name != 'WEIGHT_X')):
                # fits files use bzero and bscale along with signed int data types to represent unsigned integers
                 # e.g. for an unsigned 32 bit integer, the format code will be 'J' (same as for a signed 32 bit int),
                 # bscale will be 1 and bzero will be 2**31.  The data gets automatically converted as data=bscale*rawdata+bzero
@@ -993,9 +1122,14 @@ class Mangle:
         #define size of xcaps and cmcaps arrays based on the maximum number of caps in any polygon, fill extra spaces with zeros
         maxn=self.ncaps.max()
 
+        if self.uselongdoubles:
+            floattype=np.longdouble
+        else:
+            floattype=np.float64
+
         #initialize to zero-filled arrays
-        xcaps=zeros((len(self.polylist),maxn,3))
-        cmcaps=zeros((len(self.polylist),maxn))
+        xcaps=zeros((len(self.polylist),maxn,3),dtype=floattype)
+        cmcaps=zeros((len(self.polylist),maxn),dtype=floattype)
 
         #run through polygons and massage caps data in polylist to fit into cmcaps and xcaps arrays
         polyids=arange(0,self.npoly,dtype=int)
@@ -1006,6 +1140,24 @@ class Mangle:
         #reshape xcaps array to have dimensions (npolys, 3*maxn) rather than (npolys,maxn,3) to keep pyfits happy  
         xcaps=xcaps.reshape(-1,3*maxn)
 
+        if self.uselongdoubles:
+            cmcaps_doubdoub=longdouble_utils.longdouble2doubledouble(cmcaps)
+            xcaps_doubdoub=longdouble_utils.longdouble2doubledouble(xcaps)
+            weights_doubdoub=longdouble_utils.longdouble2doubledouble(self.weights)
+            areas_doubdoub=longdouble_utils.longdouble2doubledouble(self.areas)
+            cmcaps=cmcaps_doubdoub[0]
+            cmcaps_x=cmcaps_doubdoub[1]
+            xcaps=xcaps_doubdoub[0]
+            xcaps_x=xcaps_doubdoub[1]
+            weights=weights_doubdoub[0]
+            weights_x=weights_doubdoub[1]
+            areas=areas_doubdoub[0]
+            areas_x=areas_doubdoub[1]
+        else:
+            weights=self.weights
+            areas=self.areas
+            
+
         #if keeping polygon id number in fits file, add 'ids' column
         if keep_ids == True:
             if 'ids' not in self.names:
@@ -1015,9 +1167,14 @@ class Mangle:
         xcaps_col=pyfits.Column(name='XCAPS',format=str(3*maxn)+'D',dim='( 3, '+str(maxn)+')',array=xcaps)
         cmcaps_col=pyfits.Column(name='CMCAPS',format=str(maxn)+'D',array=cmcaps)
         ncaps_col=pyfits.Column(name='NCAPS',format='J',array=self.ncaps)
-        str_col=pyfits.Column(name='STR',format='D',array=self.areas)
-        weight_col=pyfits.Column(name='WEIGHT',format='D',array=self.weights)
+        str_col=pyfits.Column(name='STR',format='D',array=areas)
+        weight_col=pyfits.Column(name='WEIGHT',format='D',array=weights)
         pixel_col=pyfits.Column(name='PIXEL',format='J',array=self.pixels)
+        if self.uselongdoubles:
+            xcaps_x_col=pyfits.Column(name='XCAPS_X',format=str(3*maxn)+'D',dim='( 3, '+str(maxn)+')',array=xcaps_x)
+            cmcaps_x_col=pyfits.Column(name='CMCAPS_X',format=str(maxn)+'D',array=cmcaps_x)
+            str_x_col=pyfits.Column(name='STR_X',format='D',array=areas_x)
+            weight_x_col=pyfits.Column(name='WEIGHT_X',format='D',array=weights_x)
 
         #define pyfits columns for any extra columns listed in self.names
         extracols=[]
@@ -1052,13 +1209,17 @@ class Mangle:
             primary.header.update('PIXTYPE',self.pixelization[1])    
         primary.header.update('SNAPPED',self.snapped)
         primary.header.update('BLKNIZED',self.balkanized)
+        primary.header.update('REAL',self.real)
 
-        #make new fits table and write it to file 
-        table=pyfits.new_table(pyfits.ColDefs([xcaps_col,cmcaps_col,ncaps_col,weight_col,pixel_col,str_col]+extracols))
+        #make new fits table and write it to file
+        if self.uselongdoubles:
+            table=pyfits.new_table(pyfits.ColDefs([xcaps_col,xcaps_x_col,cmcaps_col,cmcaps_x_col,ncaps_col,weight_col,weight_x_col,pixel_col,str_col,str_x_col]+extracols))
+        else:
+            table=pyfits.new_table(pyfits.ColDefs([xcaps_col,cmcaps_col,ncaps_col,weight_col,pixel_col,str_col]+extracols))
         tablehdus=pyfits.HDUList([primary, table])
         tablehdus.writeto(filename,clobber=clobber)
 
-    def __init__(self,filename,db=False,keep_ids=False,read_extra_columns=False):
+    def __init__(self,filename,db=False,keep_ids=False,read_extra_columns=False,real=None):
         """
         Initialize Mangle with a file containing the polygon mask.
         If db == True, filename is expected to be a windows db table.
@@ -1090,9 +1251,9 @@ class Mangle:
                 raise IOError,"Can not find %s"%filename
             self.filename = filename # useful to keep this around.
             if (filename[-4:] == '.ply') | (filename[-4:] == '.pol'):
-                self.read_ply_file(filename,read_extra_columns=read_extra_columns)
+                self.read_ply_file(filename,read_extra_columns=read_extra_columns,real=real)
             elif filename[-5:] == '.fits':
-                self.read_fits_file(filename)
+                self.read_fits_file(filename,real=real)
             else:
                 raise IOError,"Unknown file extension for %s"%filename
 
@@ -1100,8 +1261,9 @@ class Mangle:
             print "Got %d polygons, expecting %d."%\
               (len(self.polylist),self.npoly)
         if keep_ids == True:
-            self.add_column('ids',self.polyids)
-            self.polyids=arange(0,self.npoly,dtype=int)
+            if 'ids' not in self.names:
+                self.add_column('ids',self.polyids)
+                self.polyids=arange(0,self.npoly,dtype=int)
         else:                
             # Check whether the polyids are sequential and range from 0 to npoly-1
             # If they don't, then there may be a problem with the file.
@@ -1115,11 +1277,7 @@ class Mangle:
                     print "WARNING!!!!"
                     print "Found",badcounter,"polygons out of order."
                     print "Reordering polygons so that polyid=index"
-                    sorter = argsort(self.polyids)
-                    self.polylist = take(self.polylist,sorter)
-                    self.weights = self.weights[sorter]
-                    self.areas = self.areas[sorter]
-                    self.polyids = self.polyids[sorter]
+                    self.sortpolys()
                     badcounter = 0
             else:
                 print "WARNING!!!!"
@@ -1131,16 +1289,3 @@ class Mangle:
                 self.polyids=arange(0,self.npoly,dtype=int)
      #...
 #...
-
-#def quad2doubledouble(quad):
-#    if quad.dtype==np.float128:
-#        t=(2**57+1)*quad
-#        hi=t-(t-quad)
-#        lo=quad-hi
-#        doubledouble=np.complex128(hi+lo*j)
-#    else:
-#        raise TypeError("error: quad value is wrong datatype")
-#    return doubledouble        
-    
-
-#def doubledoubletoquad(doubledouble):
