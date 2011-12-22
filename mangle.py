@@ -172,6 +172,7 @@ class Mangle:
         if useUtils:
             if self.uselongdoubles:
                 for cap in polygon:
+                    #use long double version of _incap, called _incapl
                     test &= mangle_utils._incapl(cap,x0,y0,z0)
             else:
                 for cap in polygon:
@@ -453,8 +454,15 @@ class Mangle:
         return mng2
     #...
 
-    def sortpolys(self,sortbycolumn='polyids'):
-        sorter = argsort(vars(self)[sortbycolumn])
+    def sortpolys(self,sortbycolumn='polyids',kind='quicksort'):
+        """
+    Function to sort polygons in-place.
+    Parameters:
+    sortbycolumn: indicates the column of the polygon structure to use as
+                  the sorting index. Default is to sort by polyids.
+    kind: sorting algorithm to use.  Default is quicksort.
+        """
+        sorter = argsort(vars(self)[sortbycolumn],kind=kind)
         self.polylist = take(self.polylist,sorter)
         self.weights = self.weights[sorter]
         self.areas = self.areas[sorter]
@@ -1157,7 +1165,6 @@ class Mangle:
             weights=self.weights
             areas=self.areas
             
-
         #if keeping polygon id number in fits file, add 'ids' column
         if keep_ids == True:
             if 'ids' not in self.names:
