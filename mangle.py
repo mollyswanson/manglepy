@@ -45,6 +45,7 @@ Requires numpy > 1.0, and pyfits > 2.3.1 for loading fits files.
 #        29-Nov-2011 mecs: (fixed various bugs with importing ascii files with space before header keywords or negative weights/ids)
 #        30-Nov-2011 mecs: (integrated with my graphmask plotting module)
 #        21-Dec-2011 mecs: (added capability to use long doubles as in the real*10 version of mangle, added sortpolys function)
+#        23-Dec-2011 mecs: (added which_pixel function and incorporated into get_polyids and polyid)
 
 
 import os
@@ -67,7 +68,7 @@ else:
 
 import numpy as np
 # some of these will need to be called often, so explicitly name them
-from numpy import array,sin,cos,fabs,pi,empty,zeros,ones,argsort,take,arange
+from numpy import array,sin,cos,fabs,pi,empty,zeros,ones,argsort,take,arange,ceil,floor
 import pyfits
 
 try:
@@ -183,25 +184,43 @@ class Mangle:
         return test
     #...
     
-    def which_pixel(self,ra,dec):
-        """Return the pixel numbers for each pair of ra,dec.
-        
-        UNFINISHED!!!
-        The pixelization information is , given pixelization
-        resolution res and scheme 's' or 'd'.
-        !!! NOTE: only scheme 's' is currently implemented"""
+    def which_pixel(self,az,sinel):
+        """Return the mangle pixel numbers for each pair of ra,dec.
+        pixelization info is stored in self.pixelization.
+        self.pixelization[0] is the resolution.
+        self.pixelization[1] is the pixelization scheme.
+        !!! NOTE: only scheme 's' is currently implemented."""
         if self.pixelization == None:
             raise TypeError('No pixelization defined in this mangle instance.')
-        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        ### TBD!!!
+        if self.pixelization[0] <0:
+            raise TypeError('This python mangle wrapper does not yet support polyid adaptively pixelized files.')
+        if self.pixelization[1]!='s':
+            raise TypeError('Only the "simple" pixelization scheme s is currently implemented.')
+        if self.uselongdoubles:
+            twopi=2.*pi_long
+        else:
+            twopi=2.*pi
+        res=self.pixelization[0]
+        pixel_start=(4**res-1)/3
+        sinel=np.atleast_1d(sinel)
+        az=np.atleast_1d(az)
+        n=ceil((1-sinel)/2*(2**res))-1
+        n[sinel==1]=0
+        m=floor((az%twopi)/twopi*(2**res))
+        base_pix=2**res*n+m
+        pix=pixel_start+base_pix
+        return pix.astype(int)        
         ### Math for this comes from which_pixel in the mangle2.2/src directory
-        return None
+        #still need to add support for sdsspix scheme, adaptive pixelization
+        #return None
     #...        
 
     def get_polyids(self,ra,dec):
         """Return the ID numbers of the polygons containing each RA/Dec pair.
 
         ra/dec should be numpy arrays in decimal degrees.
+
+        !!! don't use on unbalkanized polygon files - this will only return 1 id per ra/dec.
         """
         if self.uselongdoubles:
             # force an upconversion to longdouble, in case ra/dec are float32 or float64
@@ -215,20 +234,25 @@ class Mangle:
         x0 = sintheta*cos(phi)
         y0 = sintheta*sin(phi)
         z0 = cos(theta)
+        goodpolys = -ones(len(ra),dtype=int)
         # If we have a pixelized mask, we can reduce the number of polygons 
         # we have to check for each object.
-        #if self.npixels > 0:
-        #    for pix in self.pixels:
-        #        pixels = self.which_pixel(ra,dec)
-        #    # TBD: This needs to be finished!
-        #    return None
-        #else:
-        goodpolys = -ones(len(ra),dtype=int)
-        for i,poly in izip(self.polyids,self.polylist):
-            test = self.inpoly_vec(poly,x0,y0,z0)
-            goodpolys[test] = i
+        if self.npixels > 0:
+            radecpix=self.which_pixel(phi,z0)
+            for pix in set(self.pixels):
+                radecs_in_pixel=(radecpix==pix)
+                polys_in_pixel=(self.pixels==pix)
+                goodpolys_slice=goodpolys[radecs_in_pixel]
+                for i,poly in izip(self.polyids[polys_in_pixel],self.polylist[polys_in_pixel]):
+                    test = self.inpoly_vec(poly,x0[radecs_in_pixel],y0[radecs_in_pixel],z0[radecs_in_pixel])
+                    goodpolys_slice[test] = i
+                goodpolys[radecs_in_pixel]=goodpolys_slice
+        else:      
+            for i,poly in izip(self.polyids,self.polylist):
+                test = self.inpoly_vec(poly,x0,y0,z0)
+                goodpolys[test] = i
         return goodpolys
-    #...
+      #...
 
     def get_areas(self,ra,dec):
         """Return the areas of the polygons containing each RA/Dec pair.
@@ -265,10 +289,19 @@ class Mangle:
             theta = pi/180. * (90.0-dec)
             phi   = pi/180. * ra
         ipoly = -1
-        for i,poly in zip(self.polyids,self.polylist):
-            if self.inpoly_spam(poly,theta,phi):
-                ipoly = i
-                break
+
+        if self.npixels > 0:
+            pix=self.which_pixel(phi,cos(theta))
+            polys_in_pixel=(self.pixels==pix)
+            for i,poly in izip(self.polyids[polys_in_pixel],self.polylist[polys_in_pixel]):
+                if self.inpoly_spam(poly,theta,phi):
+                    ipoly = i
+                    break
+        else:
+            for i,poly in zip(self.polyids,self.polylist):
+                if self.inpoly_spam(poly,theta,phi):
+                    ipoly = i
+                    break
         return(ipoly)
 
     def weight(self,ra,dec):
