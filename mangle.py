@@ -46,7 +46,7 @@ Requires numpy > 1.0, and pyfits > 2.3.1 for loading fits files.
 #        30-Nov-2011 mecs: (integrated with my graphmask plotting module)
 #        21-Dec-2011 mecs: (added capability to use long doubles as in the real*10 version of mangle, added sortpolys function)
 #        23-Dec-2011 mecs: (added which_pixel function and incorporated into get_polyids and polyid)
-
+#        05-Jan-2011 jkp: Added write(), to intelligently write either .ply or .fits based on extension.
 
 import os
 import re
@@ -384,6 +384,19 @@ class Mangle:
     def set_allpixel(self,pixel):
         """Set the weight of all polygons to weight."""
         self.pixels.flat = pixel
+
+    def write(self,filename,**kwargs):
+        """
+        Write these polygons to either a .fits or .ply file, depending on the 
+        extension of filename.
+        
+        Passes any keyword arguments on to either writeply() or write_fits_file().
+        """
+        if '.fits' in filename:
+            write_fits_file(filename,**kwargs)
+        if '.ply' in filename:
+            writeply(filename,**kwargs)
+    #...
 
     def writeply(self,filename,keep_ids=False,write_extra_columns=False,weight=None):
         """
