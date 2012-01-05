@@ -1017,7 +1017,7 @@ class Mangle:
             if ('CMCAPS_X' in names) & (self.uselongdoubles):
                 cmcaps=longdouble_utils.doubledouble2longdouble((x['CMCAPS'],x['CMCAPS_X']))
             else:
-                cmcaps=floattype(x['MCAPS'])            
+                cmcaps=floattype(x['CMCAPS'])            
             self.polylist[i][...,:-1] = xcaps.reshape(-1,1)[:3*n].reshape(n,3)
             self.polylist[i][...,-1] = cmcaps.reshape(-1)[:n]
 
