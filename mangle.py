@@ -954,15 +954,17 @@ class Mangle:
             reHeaderKeywords = re.compile(r"([-+]?\d+)\s+polygons|pixelization\s+([-+]?\d+)([sd])|balkanized|snapped|real\s+([-+]?\d+)")
             cardlist=header.ascardlist()
 
-            for card in header.ascardlist():
+            for card in cardlist:
                 line=str(card)
                 sss=reHeaderKeywords.search(line)
-            #if line starts with a header keyword, add the info as metadata
+                #if line starts with a header keyword, add the info as metadata
                 if sss is not None:
                     if rePixelization.search(line) is not None:
-                        self.pixelization = (int(sss.group(1)),sss.group(2))
+                        result = rePixelization.search(line)
+                        self.pixelization = (int(result.group(1)),result.group(2))
                     elif reReal.search(line) is not None:
-                        self.real = int( sss.group(3) )
+                        result = reReal.search(line)
+                        self.real = int(resulth.group(3))
                     elif reSnapped.search(line) is not None: 
                         self.snapped = True
                     elif reBalkanized.search(line) is not None:
