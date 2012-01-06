@@ -393,9 +393,9 @@ class Mangle:
         Passes any keyword arguments on to either writeply() or write_fits_file().
         """
         if '.fits' in filename:
-            write_fits_file(filename,**kwargs)
+            self.write_fits_file(filename,**kwargs)
         if '.ply' in filename:
-            writeply(filename,**kwargs)
+            self.writeply(filename,**kwargs)
     #...
 
     def writeply(self,filename,keep_ids=False,write_extra_columns=False,weight=None):

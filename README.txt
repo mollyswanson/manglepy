@@ -1,9 +1,12 @@
 Additional python library requirements:
 -------------
 
-numpy >= 1.0.1
+-- numpy >= 1.0.1
 
-pyfits >= 3.0.4
+-- pyfits >= 3.0.4
+
+If you recieve errors like "Record array does not contain 'columnns'
+attribute," then you are not using a recent enough version of pyfits.
 
 
 Speeding up mangle.py:
