@@ -18,35 +18,35 @@ Example usage:
     mng.weights[polyids] == mng.get_weights(ra,dec)
     first_mng = mng[:10] # new mangle instance with just the first 10 polygons
 
-Requires numpy > 1.0, and pyfits > 2.3.1 for loading fits files.
+Requires numpy > 1.0, and pyfits > 3.0.4 for loading fits files.
 """
-# Author:		Martin White	(UCB)
-# Written		17-Mar-2010
-# Modified:		17-Mar-2010	(Basic bug fixes)
-#			22-Mar-2010	(Track pixel area)
-#			20-Apr-2010	(Add setweight and writeply methods)
-#			21-Apr-2010	(Add totalarea method)
-#			12-May-2010	(Allow no space before "caps")
-#        24-Jun-2010 jkp: (tweaks to gain ~40% speed improvement.)
-#        29-Jun-2010 jkp: (numpy vectorized polyid for >10x speed improvement.)
-#        22-Jul-2010 jkp: (completed and tested numpy version. Speed is ~1/2 that of the commandline mangle)
-#        10-Aug-2010 jkp: (Added resorting of out-of-order polygons and altered original polylist structure)
-#        10-Oct-2010 jkp: (Added __getitem__, returning a new Mangle instance given an index)
-#        10-Mar-2011 jkp: (Added support for mangle_utils, with a 4x faster cythonized _incap)
-#        18-May-2011 apw: (Added support using the photofield database tables in dr8db/spectradb)
-#        10-Sep-2011 mecs: (allow ascii polygon files to be named .pol or .ply)
-#        10-Sep-2011 mecs: (added option to keep existing id numbers from the polygon file)
-#        15-Sep-2011 mecs: (added support to parse mangle header keywords in ascii and fits polygon files)
-#        20-Sep-2011 mecs: (added method to write a polygon fits file)
-#        27-Sep-2011 mecs: (added support to read in whatever extra column names are included in an input fits file)
-#        27-Sep-2011 mecs: (added metadata structure to track of extra columns and methods to add and remove columns)
-#        27-Sep-2011 mecs: (added support for reading and writing variable length array columns)
-#        03-Nov-2011 mecs: (added support to read and write extra columns in ascii format)
-#        29-Nov-2011 mecs: (fixed various bugs with importing ascii files with space before header keywords or negative weights/ids)
-#        30-Nov-2011 mecs: (integrated with my graphmask plotting module)
-#        21-Dec-2011 mecs: (added capability to use long doubles as in the real*10 version of mangle, added sortpolys function)
-#        23-Dec-2011 mecs: (added which_pixel function and incorporated into get_polyids and polyid)
-#        05-Jan-2011 jkp: Added write(), to intelligently write either .ply or .fits based on extension.
+# Author: Martin White (UCB)
+# Written 17-Mar-2010
+# Modified: 17-Mar-2010	(Basic bug fixes)
+# 22-Mar-2010 (Track pixel area)
+# 20-Apr-2010 (Add setweight and writeply methods)
+# 21-Apr-2010 (Add totalarea method)
+# 12-May-2010 (Allow no space before "caps")
+# 24-Jun-2010 jkp: (tweaks to gain ~40% speed improvement.)
+# 29-Jun-2010 jkp: (numpy vectorized polyid for >10x speed improvement.)
+# 22-Jul-2010 jkp: (completed and tested numpy version. Speed is ~1/2 that of the commandline mangle)
+# 10-Aug-2010 jkp: (Added resorting of out-of-order polygons and altered original polylist structure)
+# 10-Oct-2010 jkp: (Added __getitem__, returning a new Mangle instance given an index)
+# 10-Mar-2011 jkp: (Added support for mangle_utils, with a 4x faster cythonized _incap)
+# 18-May-2011 apw: (Added support using the photofield database tables in dr8db/spectradb)
+# 10-Sep-2011 mecs: (allow ascii polygon files to be named .pol or .ply)
+# 10-Sep-2011 mecs: (added option to keep existing id numbers from the polygon file)
+# 15-Sep-2011 mecs: (added support to parse mangle header keywords in ascii and fits polygon files)
+# 20-Sep-2011 mecs: (added method to write a polygon fits file)
+# 27-Sep-2011 mecs: (added support to read in whatever extra column names are included in an input fits file)
+# 27-Sep-2011 mecs: (added metadata structure to track of extra columns and methods to add and remove columns)
+# 27-Sep-2011 mecs: (added support for reading and writing variable length array columns)
+# 03-Nov-2011 mecs: (added support to read and write extra columns in ascii format)
+# 29-Nov-2011 mecs: (fixed various bugs with importing ascii files with space before header keywords or negative weights/ids)
+# 30-Nov-2011 mecs: (integrated with my graphmask plotting module)
+# 21-Dec-2011 mecs: (added capability to use long doubles as in the real*10 version of mangle, added sortpolys function)
+# 23-Dec-2011 mecs: (added which_pixel function and incorporated into get_polyids and polyid)
+# 05-Jan-2011 jkp: Added write(), to intelligently write either .ply or .fits based on extension.
 
 import os
 import re
@@ -84,7 +84,7 @@ except ImportError as e:
 else:
     uselongdoubles=True
     pi_long=np.arctan(np.longdouble(1))*4
-        
+
 class Mangle:
     """Implements basic mangle routines to identify polygons containing points.
     
