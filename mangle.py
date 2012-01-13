@@ -371,11 +371,11 @@ class Mangle:
         sector_areas = {}
         for a,s in izip(self.areas,self.sector):
             if s not in sector_areas:
-                sector_areas = 0
-            sector_areas += a
-        self.sector_areas = np.array(len(self.area),dtype=self.area.dtype)
-        for i in range(len(self.area)):
-            self.sector_areas = sector_areas[self.sector[i]]
+                sector_areas[s] = 0
+            sector_areas[s] += a
+        self.sector_areas = np.zeros(len(self.areas),dtype=self.areas.dtype)
+        for i in range(len(self.areas)):
+            self.sector_areas[i] = sector_areas[self.sector[i]]
     #...
 
     def set_weight(self,polyid,weight):
