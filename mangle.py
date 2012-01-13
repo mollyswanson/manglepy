@@ -86,7 +86,8 @@ else:
     pi_long=np.arctan(np.longdouble(1))*4
 
 class Mangle:
-    """Implements basic mangle routines to identify polygons containing points.
+    """
+    Implements basic mangle routines to identify polygons containing points.
     
     All functions assume ra,dec are in decimal degrees.
 
@@ -185,11 +186,13 @@ class Mangle:
     #...
     
     def which_pixel(self,az,sinel):
-        """Return the mangle pixel numbers for each pair of ra,dec.
+        """
+        Return the mangle pixel numbers for each pair of ra,dec.
         pixelization info is stored in self.pixelization.
         self.pixelization[0] is the resolution.
         self.pixelization[1] is the pixelization scheme.
-        !!! NOTE: only scheme 's' is currently implemented."""
+        !!! NOTE: only scheme 's' is currently implemented.
+        """
         if self.pixelization == None:
             raise TypeError('No pixelization defined in this mangle instance.')
         if self.pixelization[0] <0:
@@ -216,7 +219,8 @@ class Mangle:
     #...        
 
     def get_polyids(self,ra,dec):
-        """Return the ID numbers of the polygons containing each RA/Dec pair.
+        """
+        Return the ID numbers of the polygons containing each RA/Dec pair.
 
         ra/dec should be numpy arrays in decimal degrees.
 
@@ -255,7 +259,8 @@ class Mangle:
       #...
 
     def get_areas(self,ra,dec):
-        """Return the areas of the polygons containing each RA/Dec pair.
+        """
+        Return the areas of the polygons containing each RA/Dec pair.
 
         ra/dec should be numpy arrays in decimal degrees.
 
@@ -268,7 +273,8 @@ class Mangle:
     #...
 
     def get_weights(self,ra,dec):
-        """Return the weights of the polygons containing each RA/dec pair.
+        """
+        Return the weights of the polygons containing each RA/dec pair.
 
         ra,dec should be numpy arrays in decimal degrees.
 
@@ -278,7 +284,8 @@ class Mangle:
     #...
 
     def polyid(self,ra,dec):
-        """Return the polyid of the polygon containing (ra,dec).
+        """
+        Return the polyid of the polygon containing (ra,dec).
         
         ra,dec should be in decimal degrees.
         """
@@ -305,7 +312,8 @@ class Mangle:
         return(ipoly)
 
     def weight(self,ra,dec):
-        """Return the weight of the polygon containing (ra,dec).
+        """
+        Return the weight of the polygon containing (ra,dec).
         
         ra,dec should be in decimal degrees.
         """
@@ -323,7 +331,8 @@ class Mangle:
         return(weight)
 
     def area(self,ra,dec):
-        """Return the area of the polygon containing (ra,dec).
+        """
+        Return the area of the polygon containing (ra,dec).
         
         ra,dec should be in decimal degrees.
 
@@ -343,7 +352,8 @@ class Mangle:
         return(area)
 
     def totalarea(self):
-        """Return the total area and the 'effective' area in the mask.
+        """
+        Return the total area and the 'effective' area in the mask.
 
         total area is the sum of the areas of each polygon.
         effective area is the area weighted by the completeness.
@@ -351,6 +361,22 @@ class Mangle:
         tot_area = self.areas.sum()
         eff_area = (self.weights*self.areas).sum()
         return((tot_area,eff_area))
+
+    def compute_sector_areas(self):
+        """
+        Compute the area of each sector, and store them as self.sector_areas
+        
+        Requires that the sector numbers exist in sector.
+        """
+        sector_areas = {}
+        for a,s in izip(self.areas,self.sector):
+            if s not in sector_areas:
+                sector_areas = 0
+            sector_areas += a
+        self.sector_areas = np.array(len(self.area),dtype=self.area.dtype)
+        for i in range(len(self.area)):
+            self.sector_areas = sector_areas[self.sector[i]]
+    #...
 
     def set_weight(self,polyid,weight):
         """Set the weight of polygon 'polyid' to weight.
