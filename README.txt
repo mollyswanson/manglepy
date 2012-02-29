@@ -21,5 +21,14 @@ regenerated (step 1).
 1) To generate C sources (you should not have to do this), run this:
    cython -a mangle_utils.pyx
 
-2) To build the mangle_utils library, run this:
-   python setup.py build_ext --inplace
+2) to do a full install
+
+        python setup.py install --prefix=/path/to/install
+
+   and add /path/to/install/lib/python2.7/site-packages to your
+   PYTHONPATH (use your python version instead of 2.7)
+
+2) To build the mangle_utils library in place instead of doing
+   an install
+        python setup.py build_ext --inplace
+   and add the /mangle subdir of this source to your PYTHONPATH
