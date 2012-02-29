@@ -228,12 +228,12 @@ class Mangle:
         """
         if self.uselongdoubles:
             # force an upconversion to longdouble, in case ra/dec are float32 or float64
-            theta = pi_long/180. * (90.0-np.longdouble(dec))
-            phi = pi_long/180. * np.longdouble(ra)
+            theta = pi_long/180. * (90.0-np.array(dec,ndmin=1,dtype='f16'))
+            phi = pi_long/180. * np.array(ra,ndmin=1,dtype='f16')
         else:
             # force an upconversion to double, in case ra/dec are float32
-            theta = pi/180. * (90.0-np.float64(dec))
-            phi = pi/180. * np.float64(ra)
+            theta = pi/180. * (90.0-np.array(dec,ndmin=1,dtype='f8'))
+            phi = pi/180. * np.array(ra,ndmin=1,dtype='f8')
         sintheta = sin(theta)
         x0 = sintheta*cos(phi)
         y0 = sintheta*sin(phi)
@@ -879,7 +879,9 @@ class Mangle:
                     self.polylist[counter][i] = cap
                 ss=None
                 counter += 1
-        self.npixels = len(set(self.pixels))
+        w,=np.where(self.pixels != 0)
+        #self.npixels = len(set(self.pixels))
+        self.npixels = np.unique(w).size
         ff.close()
 
         #read in extra columns stored in this format:
