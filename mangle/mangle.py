@@ -218,6 +218,7 @@ class Mangle:
         #return None
     #...        
 
+        
     def get_polyids(self,ra,dec):
         """
         Return the ID numbers of the polygons containing each RA/Dec pair.
@@ -257,6 +258,24 @@ class Mangle:
                 goodpolys[test] = i
         return goodpolys
       #...
+
+    def contains(self,ra,dec):
+        """
+        Returns 1 if the point is found in the mask 0 if not.
+
+        parameters
+        ----------
+        ra: scalar or array
+        dec: scalar or array
+
+        output
+        ------
+        a numpy array same length as ra,dec.  The value is 1 if it is in the
+        mask (poly id found), 0 if not.  
+        """
+        ply=self.get_polyids(ra,dec)
+        return np.where(ply >= 0, 1, 0)
+
 
     def get_areas(self,ra,dec):
         """
