@@ -47,6 +47,7 @@ Requires numpy > 1.0, and pyfits > 3.0.4 for loading fits files.
 # 21-Dec-2011 mecs: (added capability to use long doubles as in the real*10 version of mangle, added sortpolys function)
 # 23-Dec-2011 mecs: (added which_pixel function and incorporated into get_polyids and polyid)
 # 05-Jan-2011 jkp: Added write(), to intelligently write either .ply or .fits based on extension.
+# 29-Feb-2012 ess: fixed bugs when mask not pixelized. Fixed bugs when 1-d arrays sent to get_polyids.
 
 import os
 import re
