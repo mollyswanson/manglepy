@@ -43,7 +43,6 @@ import subprocess
 import os
 import tempfile
 import inspect
-import mangle
 from matplotlib.collections import PolyCollection
 import numpy.ma as ma
 import matplotlib.cm as cm
@@ -63,16 +62,25 @@ except ImportError as e:
     print "WARNING: could not import Basemap:",e
     print "Polygons will be plotted using azimuth and elevation values for x and y."
     print "Visit http://matplotlib.github.com/basemap/ to download and install Basemap."
-    print "basemap versions earlier than 1.0.3 (not yet released as of 30 Nov 2011) require patch - do"
-    print "  import mpl_toolkits.basemap"
-    print "  mpl_toolkits.basemap.__file__"
-    print "to find the location of the __init__.py file to patch, and replace /path-to/ with the path in the following."
-    print "then do"
-    print "sudo patch /path-to/__init__.py -i basemapinit.patch -o __init__.py.new"
-    print "sudo mv __init__.py.new /path-to/__init__.py"
+    # TO DO: check basemap version and only print out below if applicable
+    #print "basemap versions earlier than 1.0.3 (not yet released as of 30 Nov 2011) require patch - do"
+    #print "  import mpl_toolkits.basemap"
+    #print "  mpl_toolkits.basemap.__file__"
+    #print "to find the location of the __init__.py file to patch, and replace /path-to/ with the path in the following."
+    #print "then do"
+    #print "sudo patch /path-to/__init__.py -i basemapinit.patch -o __init__.py.new"
+    #print "sudo mv __init__.py.new /path-to/__init__.py"
     useBasemap = False
 else:
     useBasemap = True
+
+try:
+    import mangle
+except ImportError as e:
+    useManglepy = False
+    useBasemap = False
+else:
+    useManglepy = True
 
 def main(argv=None):
     """
@@ -140,7 +148,9 @@ def main(argv=None):
                         value=None
             kwargs[key]=value
     #call plot_mangle_map to draw the polygons
+    print "plotting polygons from " + args.infile + " ..."
     plot_mangle_map(args.infile,outfilename=args.outfile,autoscale=args.autoscale,minaz=minaz,maxaz=maxaz,minel=minel,maxel=maxel,**kwargs)
+    print "plotted polygons in " + args.outfile + "."
 
 
 def plot_mangle_map(polys, outfilename=None,graphicsfilename=None,cmap='gray_r',plottitle=None,autoscale=False,enlarge_border=.1,bgcolor='auto',drawgrid=True,gridlinewidth=.1,pointsper2pi=30,minaz=None,maxaz=None,minel=None,maxel=None,cenaz=None,cenel=None,**kwargs):
@@ -279,10 +289,22 @@ def plot_mangle_map(polys, outfilename=None,graphicsfilename=None,cmap='gray_r',
     if bgcolor=='auto':
         bgcolor=cmap(0)
     #if autoscaling, find az, el range from min, max in polygon file
+    azrangemin=360
+    shiftmin=0
     if autoscale:
         azel,weight=read_poly_list(polys)
-        minaz=nanmin(azel[:,0])
-        maxaz=nanmax(azel[:,0])
+        for shift in arange(0,360,10):
+            az_shifted=(azel[:,0]+shift) % 360 -shift
+            minaz=nanmin(az_shifted)
+            maxaz=nanmax(az_shifted)            
+            azrange=maxaz-minaz
+            if azrange<azrangemin:
+                azrangemin=azrange
+                shiftmin=shift
+                
+        az_shifted=(azel[:,0]+shiftmin) % 360 -shiftmin
+        minaz=nanmin(az_shifted)
+        maxaz=nanmax(az_shifted)  
         minel=nanmin(azel[:,1])
         maxel=nanmax(azel[:,1])
         azrange=maxaz-minaz
@@ -398,9 +420,12 @@ def read_poly_list(polys,pointsper2pi=30,graphicsfilename=None):
     """
     jpol = tempfile.NamedTemporaryFile('rw+b')
     #if mangle.Mangle instance, write polygons to temporary file
-    if isinstance(polys,mangle.Mangle):
-        polys.writeply(jpol.name)
-        filename=jpol.name
+    if useManglepy:
+        if isinstance(polys,mangle.Mangle):
+            polys.writeply(jpol.name)
+            filename=jpol.name
+        else:
+            filename=polys
     else:
         filename=polys
     #try loading file - will be successful if file is .list format
@@ -642,12 +667,15 @@ def get_graphics_polygons(polys,trimmer_poly=None,cenaz=180,projection='cyl',poi
     """
     trim=True
     if trimmer_poly is None:
-        trim=False        
-    if not isinstance(polys,mangle.Mangle):
-        if polys[-5:]=='.list':
-            trim=False
-        if polys[-5:]=='.fits':
-            polys=mangle.Mangle(polys)
+        trim=False
+    if useManglepy:
+        if not isinstance(polys,mangle.Mangle):
+            if polys[-5:]=='.list':
+                trim=False
+            if polys[-5:]=='.fits':
+                polys=mangle.Mangle(polys)
+    else:
+        trim=False
     if trim:
         trimmed_polys=trim_mask(polys,trimmer_poly)
         if trimmed_polys.npoly>0:
@@ -1018,8 +1046,11 @@ if useBasemap:
             call = ' '.join(('poly2poly -q -i'+trimtype,jtrim.name,jpol.name))
             subprocess.check_call(call,shell=True)
             jtrim.close()
-            trimmer_poly=mangle.Mangle(jpol.name,keep_ids=True)
-            self.trimmer_poly=trimmer_poly
+            if useManglepy:
+                trimmer_poly=mangle.Mangle(jpol.name,keep_ids=True)
+                self.trimmer_poly=trimmer_poly
+            else:
+                self.trimmer_poly=None
 
         def get_graphics_polygons(self,polys,pointsper2pi=30,graphicsfilename=None):
             """
@@ -1098,6 +1129,10 @@ def trim_mask(polys,trimmer_poly):
     except subprocess.CalledProcessError as x:
         os.chdir(pwd)
         print x.output
+        raise
+    except:
+        os.chdir(pwd)
+        raise
     else:
         os.chdir(pwd)
     os.rmdir(jdir)

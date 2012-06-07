@@ -433,7 +433,7 @@ class Mangle:
 
     def write(self,filename,**kwargs):
         """
-        Write these polygons to either a .fits or .ply file, depending on the 
+        Write these polygons to either a .fits or .ply/.pol file, depending on the 
         extension of filename.
         
         Passes any keyword arguments on to either writeply() or write_fits_file().
@@ -441,6 +441,8 @@ class Mangle:
         if '.fits' in filename:
             self.write_fits_file(filename,**kwargs)
         if '.ply' in filename:
+            self.writeply(filename,**kwargs)
+        if '.pol' in filename:
             self.writeply(filename,**kwargs)
     #...
 
