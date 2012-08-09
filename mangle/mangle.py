@@ -56,6 +56,10 @@ import copy
 from itertools import izip
 import graphmask
 
+__author__ = "John Parejko, Martin White, Molly Swanson"
+__version__ = "2.2 $Rev$"
+__email__  = "john.parejko@yale.edu"
+
 try:
     #raise ImportError # uncomment this to force pure-python code
     import mangle_utils
@@ -111,10 +115,6 @@ class Mangle:
         newmng2 = mng[mng.areas < 1e-7]
         newmng3 = mng[[1,3,5,7,9]]
     """
-
-    __author__ = "John Parejko, Martin White, Molly Swanson"
-    __version__ = "2.2 $Rev$"
-    __email__  = "john.parejko@yale.edu"
 
     def incap_spam(self,cap,x0,y0,z0):
         """
