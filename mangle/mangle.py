@@ -113,7 +113,7 @@ class Mangle:
     """
 
     __author__ = "John Parejko, Martin White, Molly Swanson"
-    __version__ = "2.2"
+    __version__ = "2.2 $Rev$"
     __email__  = "john.parejko@yale.edu"
 
     def incap_spam(self,cap,x0,y0,z0):
