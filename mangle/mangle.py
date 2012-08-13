@@ -48,6 +48,7 @@ Requires numpy > 1.0, and pyfits > 3.0.4 for loading fits files.
 # 23-Dec-2011 mecs: (added which_pixel function and incorporated into get_polyids and polyid)
 # 05-Jan-2011 jkp: Added write(), to intelligently write either .ply or .fits based on extension.
 # 29-Feb-2012 ess: fixed bugs when mask not pixelized. Fixed bugs when 1-d arrays sent to get_polyids.
+# 13-Aug-2012 mecs: Added append, rotate, and generate_shifted_copies functions
 
 import os
 import re
@@ -430,6 +431,68 @@ class Mangle:
     def set_allpixel(self,pixel):
         """Set the weight of all polygons to weight."""
         self.pixels.flat = pixel
+        
+    def rotate(self,ra,dec):
+        """
+        rotate polys from 0,0 to ra,dec
+        """
+        alpha=ra*pi/180.0
+        delta=dec*pi/180.0
+        rotate1= np.array([ [cos(delta), 0.0, sin(delta)],
+                    [0.0, 1.0, 0.0],
+                    [-sin(delta), 0.0, cos(delta)]])
+        rotate2= np.array([ [cos(alpha), sin(alpha), 0.0],
+                    [-sin(alpha), cos(alpha), 0.0 ],
+                    [0.0, 0.0, 1.0]])
+        rotmat=np.dot(rotate2,rotate1)
+
+        #list comprehension version
+        self.polylist= array([None]+ #combine output of list comprehension with "None" in order to get the correct array type
+            [np.vstack( #stack together rotated xyz vectors and original cm values
+                    [np.dot(rotmat,xyzcm[:,:-1].T), #extract xyz vectors of caps and rotate them
+                    xyzcm[:,-1]]  #extract cm values
+                    ).T   
+                for xyzcm in self.polylist])[1:] #loop through all polygon [x y z cm] arrays in polylist
+
+        ## one-loop version
+        #for i in range(self.npoly):
+         #   self.polylist[i][:,:-1]=np.dot(rotmat,self.polylist[i][:,:-1].T).T
+        
+        ## two-loop version
+        #for i in range(self.npoly):    
+            #for cap in range(0,self.ncaps[i]):
+            #    xyz=self.polylist[i][cap][:-1]
+            #    xyz=np.asarray((rotate2*rotate1*np.matrix(xyz).T).T)[0]
+            #    self.polylist[i][cap][:-1]=xyz
+        return
+
+    def generate_shifted_copies(self,ra,dec):
+        """
+        takes a mangle instance as a base element and returns a new 
+        mangle instance of many copies of that element, rotated to 
+        the center points specified in ra,dec. Element is assumed
+        to be centered on ra,dec=0,0
+
+        Examples: 
+        Generate camera footprint with polygons for 1 ccd as
+        the original element and ra,dec as a list of the angular locations
+        of the ccds within the camera.
+        camera_polys=ccd_poly.generate_shifted_copies(ccdpos_ra,ccdpos_dec)
+
+        Generate a series of camera pointing footprints with the camera
+        polygons as the polygon_element and ra,dec as the ra/dec
+        centers of the target pointings.
+        footprint_polys=camera_polys.generate_shifted_copies(target_ra,target_dec)
+
+        ra,dec should be numpy arrays in decimal degrees
+        """
+        elements=copy.deepcopy(self)
+        elements.rotate(ra[0],dec[0])
+        for az,el in zip(ra[1:],dec[1:]):
+            next_element=copy.deepcopy(self)        
+            next_element.rotate(az,el)       
+            elements.append(next_element)
+        return elements
 
     def write(self,filename,**kwargs):
         """
@@ -546,6 +609,32 @@ class Mangle:
         for name in mng2.names:
             vars(mng2)[name]=vars(mng2)[name][idx]
         return mng2
+    #...
+
+    def append(self,mng):
+        """
+        Append the polygons in mangle instance mng onto mangle instance self.
+        Example: 
+        polys1=mangle.Mangle('test1.pol')
+        polys2=mangle.Mangle('test2.pol')
+        polys1.append(polys2)       
+        """
+        assert self.pixelization == mng.pixelization, "pixelizations of mangle instances don't match"
+        if self.pixelization is not None:
+            assert self.pixelization[0] != -1, "can't append to a set of polygons pixelized adaptively"
+        assert self.balkanized == mng.balkanized, "one set of polygons is balkanized and one is not"
+        assert self.snapped == mng.snapped, "one set of polygons is snapped and one is not"
+        assert self.real == mng.real, "floating point precision of mangle instances don't match"
+        assert self.names == mng.names, "column names of mangle instances don't match"
+        self.npoly+=mng.npoly
+        self.polyids=np.append(self.polyids,mng.polyids)
+        self.areas=np.append(self.areas,mng.areas)
+        self.weights=np.append(self.weights,mng.weights)
+        self.ncaps=np.append(self.ncaps,mng.ncaps)
+        self.pixels=np.append(self.pixels,mng.pixels)
+        self.polylist=np.append(self.polylist,mng.polylist)
+        for name in self.names:
+            vars(self)[name]=np.append(vars(self)[name],vars(mng)[name])
     #...
 
     def sortpolys(self,sortbycolumn='polyids',kind='quicksort'):
