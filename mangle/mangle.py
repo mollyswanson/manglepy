@@ -486,12 +486,15 @@ class Mangle:
 
         ra,dec should be numpy arrays in decimal degrees
         """
-        elements=copy.deepcopy(self)
-        elements.rotate(ra[0],dec[0])
-        for az,el in zip(ra[1:],dec[1:]):
-            next_element=copy.deepcopy(self)        
-            next_element.rotate(az,el)       
-            elements.append(next_element)
+        #function to make a copy of the element, rotate it, and return it
+        def rotated_element(element,az,el):
+            rotated_element=copy.deepcopy(element)        
+            rotated_element.rotate(az,el)
+            return rotated_element
+        #initialize output polygons with the first rotated element
+        elements=rotated_element(self,ra[0],dec[0])       
+        #iterate through ra,dec positions, and append on a new rotated element for each one
+        [elements.append(element) for element in  (rotated_element(self,r,d) for r,d in zip(ra[1:],dec[1:])) ]
         return elements
 
     def write(self,filename,**kwargs):
