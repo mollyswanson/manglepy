@@ -486,6 +486,10 @@ class Mangle:
 
         ra,dec should be numpy arrays in decimal degrees
         """
+        #TODO
+        #take an optional recarray input of the same length as ra, dec and add the values
+        #as additional columns in the mangle instance
+        
         #function to make a copy of the element, rotate it, and return it
         def rotated_element(element,az,el):
             rotated_element=copy.deepcopy(element)        

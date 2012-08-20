@@ -292,7 +292,7 @@ def plot_mangle_map(polys, outfilename=None,graphicsfilename=None,cmap='gray_r',
     azrangemin=360
     shiftmin=0
     if autoscale:
-        azel,weight=read_poly_list(polys)
+        azel,weight=read_poly_list(polys,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi)
         for shift in arange(0,360,10):
             az_shifted=(azel[:,0]+shift) % 360 -shift
             minaz=nanmin(az_shifted)
@@ -679,14 +679,14 @@ def get_graphics_polygons(polys,trimmer_poly=None,cenaz=180,projection='cyl',poi
     if trim:
         trimmed_polys=trim_mask(polys,trimmer_poly)
         if trimmed_polys.npoly>0:
-            azel,weight,midpoints=read_poly_list(trimmed_polys,graphicsfilename=graphicsfilename)
+            azel,weight,midpoints=read_poly_list(trimmed_polys,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi)
         else:
             print "WARNING: no polygons in range to be plotted"
             azel=None
             weight=None
             midpoints=None
     else:
-        azel,weight,midpoints=read_poly_list(polys,graphicsfilename=graphicsfilename) 
+        azel,weight,midpoints=read_poly_list(polys,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi) 
     if (projection in _cylproj) or (projection in _pseudocyl):
         #azimuth has to be between cenaz-180 and cenaz+180
         azel[:,0]=(azel[:,0]-(cenaz-180))%360+(cenaz-180)
