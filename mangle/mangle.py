@@ -432,19 +432,57 @@ class Mangle:
         """Set the weight of all polygons to weight."""
         self.pixels.flat = pixel
         
-    def rotate(self,ra,dec):
+    def point_to_radec(self,ra,dec,ra_start=0,dec_start=0):
         """
-        rotate polys from 0,0 to ra,dec
+        take a pattern of polygons centered at ra,dec = ra_start,dec_start and shift them by given ra,dec
         """
-        alpha=ra*pi/180.0
-        delta=dec*pi/180.0
-        rotate1= np.array([ [cos(delta), 0.0, sin(delta)],
-                    [0.0, 1.0, 0.0],
-                    [-sin(delta), 0.0, cos(delta)]])
-        rotate2= np.array([ [cos(alpha), sin(alpha), 0.0],
-                    [-sin(alpha), cos(alpha), 0.0 ],
-                    [0.0, 0.0, 1.0]])
-        rotmat=np.dot(rotate2,rotate1)
+        psi=(90.0+ra_start)*pi/180.0
+        theta=(dec)*pi/180.0
+        phi=(-90.0-(ra+ra_start))*pi/180.0
+        self.rotatepolys(psi,theta,phi)
+        
+    def rotate(self,azn=192.859508, eln=27.128336, azp=122.932):
+        """
+        perform a coordinate transform rotation from old frame to new frame
+        uses same azn,eln,azp notation as mangle command rotate
+        azp=azimuth of old pole wrt new frame in degrees
+        azn=azimuth of new pole wrt old frame in degrees
+        eln=elevation of new pole wrt old frame in degrees
+        new north pole: (az_new,el_new)=(0,90), (az_old,el_old)=(azn,eln)
+        old north pole: (az_old_el_old)=(0,90), (az_new,el_new)=(azp,eln)
+        
+        Example: old=equatorial (J2000), new=galactic
+        ra,dec of north galactic pole = 192.859508, 27.128336
+        galactic longitude of north celestial pole = 122.932
+        so azn=192.859508, eln=27.128336, azp=122.932        
+        
+        """
+        psi=(90.0+azn)*pi/180.0
+        theta=(90.0-eln)*pi/180.0
+        phi=(90.0-azp)*pi/180.0
+        self.rotatepolys(psi,theta,phi)
+        
+    def rotatepolys(self,psi,theta,phi):
+        """
+        rotate polys using Euler angles phi,theta,psi in radians
+        """
+
+        rotate1= np.array([ 
+                 [cos(psi), sin(psi), 0.0],
+                 [-sin(psi), cos(psi), 0.0 ],
+                 [0.0, 0.0, 1.0]
+                 ])
+        rotate2= np.array([ 
+                 [1.0, 0.0, 0.0],
+                 [0.0, cos(theta), sin(theta)],
+                 [0.0, -sin(theta), cos(theta)]
+                 ])
+        rotate3= np.array([ 
+                 [cos(phi), sin(phi), 0.0],
+                 [-sin(phi), cos(phi), 0.0 ],
+                 [0.0, 0.0, 1.0]
+                 ])
+        rotmat=np.dot(rotate3,np.dot(rotate2,rotate1))
 
         #list comprehension version
         self.polylist= array([None]+ #combine output of list comprehension with "None" in order to get the correct array type
@@ -493,7 +531,7 @@ class Mangle:
         #function to make a copy of the element, rotate it, and return it
         def rotated_element(element,az,el):
             rotated_element=copy.deepcopy(element)        
-            rotated_element.rotate(az,el)
+            rotated_element.point_to_radec(az,el)
             return rotated_element
         #initialize output polygons with the first rotated element
         elements=rotated_element(self,ra[0],dec[0])       
@@ -794,7 +832,7 @@ class Mangle:
         if 'pointsper2pi' in kwargs:
             pointsper2pi=kwargs.pop('pointsper2pi')
         else:
-            pointsper2pi=None
+            pointsper2pi=30
         if skymap is None:
             if hasattr(self,'graphicsfilename'):
                 p,m=graphmask.plot_mangle_map(self.graphicsfilename,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi,**kwargs)
