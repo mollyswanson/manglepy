@@ -504,7 +504,7 @@ class Mangle:
             #    self.polylist[i][cap][:-1]=xyz
         return
 
-    def generate_shifted_copies(self,ra,dec):
+    def generate_shifted_copies(self,ra,dec,weights=None):
         """
         takes a mangle instance as a base element and returns a new 
         mangle instance of many copies of that element, rotated to 
@@ -529,14 +529,18 @@ class Mangle:
         #as additional columns in the mangle instance
         
         #function to make a copy of the element, rotate it, and return it
-        def rotated_element(element,az,el):
+        def rotated_element(element,az,el,weight=None):
             rotated_element=copy.deepcopy(element)        
             rotated_element.point_to_radec(az,el)
+            if weight is not None:
+                rotated_element.set_allweight(weight)
             return rotated_element
+        if weights is None:
+            weights=repeat(None,len(az))
         #initialize output polygons with the first rotated element
-        elements=rotated_element(self,ra[0],dec[0])       
+        elements=rotated_element(self,ra[0],dec[0],weights[0])       
         #iterate through ra,dec positions, and append on a new rotated element for each one
-        [elements.append(element) for element in  (rotated_element(self,r,d) for r,d in zip(ra[1:],dec[1:])) ]
+        [elements.append(element) for element in  (rotated_element(self,r,d,w) for r,d,w in zip(ra[1:],dec[1:],weights[1:])) ]
         return elements
 
     def write(self,filename,**kwargs):
