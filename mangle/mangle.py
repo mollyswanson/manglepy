@@ -460,7 +460,8 @@ class Mangle:
         psi=(90.0+azn)*pi/180.0
         theta=(90.0-eln)*pi/180.0
         phi=(90.0-azp)*pi/180.0
-        self.rotatepolys(psi,theta,phi)
+        rotmat=self.rotatepolys(psi,theta,phi)
+        return rotmat
         
     def rotatepolys(self,psi,theta,phi):
         """
@@ -502,7 +503,7 @@ class Mangle:
             #    xyz=self.polylist[i][cap][:-1]
             #    xyz=np.asarray((rotate2*rotate1*np.matrix(xyz).T).T)[0]
             #    self.polylist[i][cap][:-1]=xyz
-        return
+        return rotmat
 
     def generate_shifted_copies(self,ra,dec,weights=None):
         """
