@@ -537,7 +537,7 @@ class Mangle:
                 rotated_element.set_allweight(weight)
             return rotated_element
         if weights is None:
-            weights=repeat(None,len(az))
+            weights=np.repeat(None,len(ra))
         #initialize output polygons with the first rotated element
         elements=rotated_element(self,ra[0],dec[0],weights[0])       
         #iterate through ra,dec positions, and append on a new rotated element for each one
