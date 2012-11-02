@@ -13,10 +13,14 @@ Example usage:
     polyfile = 'geometry-boss7.ply' #(also accepts fits files)
     mng = mangle.Mangle(polyfile)
     # ... read in a file with ra/dec coordinates as a numpy array
-    polyids = mng.get_areas(ra,dec)
+    polyids = mng.get_polyids(ra,dec)
+    
+    # The areas and weights of the found polygons can be gotten in two ways:
     mng.areas[polyids] == mng.get_areas(ra,dec)
     mng.weights[polyids] == mng.get_weights(ra,dec)
-    first_mng = mng[:10] # new mangle instance with just the first 10 polygons
+    
+    # new mangle instance with just the first 10 polygons
+    first_mng = mng[:10]
 
 Requires numpy > 1.0, and pyfits > 3.0.4 for loading fits files.
 """
@@ -218,9 +222,8 @@ class Mangle:
         ### Math for this comes from which_pixel in the mangle2.2/src directory
         #still need to add support for sdsspix scheme, adaptive pixelization
         #return None
-    #...        
+    #...
 
-        
     def get_polyids(self,ra,dec):
         """
         Return the ID numbers of the polygons containing each RA/Dec pair.
