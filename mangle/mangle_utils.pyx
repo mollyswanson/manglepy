@@ -1,6 +1,8 @@
-"""Cythonized version of mangle polygon calculations.
-Initial Version: John Parejko, Yale 2011
 """
+Cythonized version of mangle polygon calculations.
+"""
+#Initial Version: John Parejko, Yale 2011
+
 import numpy as np
 cimport numpy as np
 cimport cython
@@ -86,4 +88,11 @@ def _incapl(np.ndarray[np.longdouble_t,ndim=1] cap,
         #else:
         #    result[i] = 0
     return result
+#...
+
+def _inpoly_vec(np.ndarray[np.longdouble_t,ndim=1] cap,
+                np.ndarray[np.longdouble_t,ndim=1] x,
+                np.ndarray[np.longdouble_t,ndim=1] y,
+                np.ndarray[np.longdouble_t,ndim=1] z):
+    return None
 #...
