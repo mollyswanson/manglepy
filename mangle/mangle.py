@@ -26,7 +26,7 @@ Requires numpy > 1.0, and pyfits > 3.0.4 for loading fits files.
 """
 # Author: Martin White (UCB)
 # Written 17-Mar-2010
-# Modified: 17-Mar-2010	(Basic bug fixes)
+# Modified: 17-Mar-2010 (Basic bug fixes)
 # 22-Mar-2010 (Track pixel area)
 # 20-Apr-2010 (Add setweight and writeply methods)
 # 21-Apr-2010 (Add totalarea method)
@@ -53,17 +53,20 @@ Requires numpy > 1.0, and pyfits > 3.0.4 for loading fits files.
 # 05-Jan-2011 jkp: Added write(), to intelligently write either .ply or .fits based on extension.
 # 29-Feb-2012 ess: fixed bugs when mask not pixelized. Fixed bugs when 1-d arrays sent to get_polyids.
 # 13-Aug-2012 mecs: Added append, rotate, and generate_shifted_copies functions
+# 05-Jun-2013 jkp: removed implicit matplotlib dependency, by commenting out graphmask stuff.
 
 import os
 import re
 import string
 import copy
 from itertools import izip
-import graphmask
+#import graphmask
+
+import time
 
 __author__ = "John Parejko, Martin White, Molly Swanson"
-__version__ = "2.2 $Rev$"
-__email__  = "john.parejko@yale.edu"
+__version__ = "3.0 $Rev$"
+__email__  = "john.parejko@yale.edu, mswanson@cfa.harvard.edu"
 
 try:
     #raise ImportError # uncomment this to force pure-python code
@@ -91,9 +94,11 @@ except ImportError as e:
     print "http://code.google.com/p/mpmath/"
     print "and longdouble_utils:"
     print "[add link to longdouble_utils on github]"
+    twopi = 2.*pi
 else:
-    uselongdoubles=True
-    pi_long=np.arctan(np.longdouble(1))*4
+    uselongdoubles = True
+    pi_long = np.arctan(np.longdouble(1))*4
+    twopi = 2.*pi_long
 
 class Mangle:
     """
@@ -113,7 +118,6 @@ class Mangle:
         get_polyids(), get_weight(), get_areas()
     which are up to 100x faster than the single value functions:
         polyid(), weight(), area()
-    when operating on numpy arrays.
     
     Supports slicing, e.g.:
         newmng = mng[:10]
@@ -191,6 +195,24 @@ class Mangle:
         return test
     #...
     
+    def which_simple_pixel(self,az,sinel):
+        """Return the pixel ids for each pair of ra/dec for simple pixelization."""
+        res = self.pixelization[0]
+        pixel_start = (4**res-1)/3
+        sinel = np.atleast_1d(sinel)
+        az = np.atleast_1d(az)
+        n = ceil((1-sinel)/2*(2**res))-1
+        n[sinel==1] = 0
+        m = floor((az%twopi)/twopi*(2**res))
+        base_pix = 2**res*n+m
+        pix = pixel_start+base_pix
+        return pix.astype(int)
+    #...
+    
+    def which_sdss_pixel(self,az,sinel):
+        return None
+    #...
+
     def which_pixel(self,az,sinel):
         """
         Return the mangle pixel numbers for each pair of ra,dec.
@@ -199,29 +221,37 @@ class Mangle:
         self.pixelization[1] is the pixelization scheme.
         !!! NOTE: only scheme 's' is currently implemented.
         """
+        ### Math for this comes from which_pixel in the mangle2.2/src directory
         if self.pixelization == None:
             raise TypeError('No pixelization defined in this mangle instance.')
-        if self.pixelization[0] <0:
+        if self.pixelization[0] < 0:
             raise TypeError('This python mangle wrapper does not yet support polyid adaptively pixelized files.')
-        if self.pixelization[1]!='s':
+        if self.pixelization[1] == 's':
+            pix = self.which_simple_pixel(az,sinel)
+        elif self.pixelization[1] == 'd':
+            # TBD: still need to add support for sdsspix scheme, adaptive pixelization
+            pix = self.which_sdss_pixel(az,sinel)
             raise TypeError('Only the "simple" pixelization scheme s is currently implemented.')
-        if self.uselongdoubles:
-            twopi=2.*pi_long
         else:
-            twopi=2.*pi
-        res=self.pixelization[0]
-        pixel_start=(4**res-1)/3
-        sinel=np.atleast_1d(sinel)
-        az=np.atleast_1d(az)
-        n=ceil((1-sinel)/2*(2**res))-1
-        n[sinel==1]=0
-        m=floor((az%twopi)/twopi*(2**res))
-        base_pix=2**res*n+m
-        pix=pixel_start+base_pix
-        return pix.astype(int)        
-        ### Math for this comes from which_pixel in the mangle2.2/src directory
-        #still need to add support for sdsspix scheme, adaptive pixelization
-        #return None
+            raise TypeError('Only the "simple" pixelization scheme s is currently implemented.')
+        return pix
+    #...
+    
+    def inpoly_vec_pixels(self,radecpix,goodpolys,x0,y0,z0):
+        """
+        Internal class function for pixelized masks.
+        
+        radecpix is the result of calling self.which_pixel().
+        Sets the polygon that xyz0[i] is in to goodpolys[i].
+        """
+        inpix = np.intersect1d(radecpix,self.pixels)
+        for pix in inpix:
+            radecs_in_pixel = (radecpix==pix)
+            goodpolys_slice = goodpolys[radecs_in_pixel]
+            for poly in self.pixel_dict[pix]:
+                test = self.inpoly_vec(self.polylist[poly],x0[radecs_in_pixel],y0[radecs_in_pixel],z0[radecs_in_pixel])
+                goodpolys_slice[test] = poly
+            goodpolys[radecs_in_pixel] = goodpolys_slice
     #...
 
     def get_polyids(self,ra,dec):
@@ -248,21 +278,14 @@ class Mangle:
         # If we have a pixelized mask, we can reduce the number of polygons 
         # we have to check for each object.
         if self.npixels > 0:
-            radecpix=self.which_pixel(phi,z0)
-            for pix in set(self.pixels):
-                radecs_in_pixel=(radecpix==pix)
-                polys_in_pixel=(self.pixels==pix)
-                goodpolys_slice=goodpolys[radecs_in_pixel]
-                for i,poly in izip(self.polyids[polys_in_pixel],self.polylist[polys_in_pixel]):
-                    test = self.inpoly_vec(poly,x0[radecs_in_pixel],y0[radecs_in_pixel],z0[radecs_in_pixel])
-                    goodpolys_slice[test] = i
-                goodpolys[radecs_in_pixel]=goodpolys_slice
-        else:      
+            radecpix = self.which_pixel(phi,z0)
+            self.inpoly_vec_pixels(radecpix,goodpolys,x0,y0,z0)
+        else:
             for i,poly in izip(self.polyids,self.polylist):
                 test = self.inpoly_vec(poly,x0,y0,z0)
                 goodpolys[test] = i
         return goodpolys
-      #...
+    #...
 
     def contains(self,ra,dec):
         """
@@ -280,7 +303,7 @@ class Mangle:
         """
         ply=self.get_polyids(ra,dec)
         return np.where(ply >= 0, 1, 0)
-
+    #...
 
     def get_areas(self,ra,dec):
         """
@@ -679,13 +702,13 @@ class Mangle:
         assert self.snapped == mng.snapped, "one set of polygons is snapped and one is not"
         assert self.real == mng.real, "floating point precision of mangle instances don't match"
         assert self.names == mng.names, "column names of mangle instances don't match"
-        self.npoly+=mng.npoly
-        self.polyids=np.append(self.polyids,mng.polyids)
-        self.areas=np.append(self.areas,mng.areas)
-        self.weights=np.append(self.weights,mng.weights)
-        self.ncaps=np.append(self.ncaps,mng.ncaps)
-        self.pixels=np.append(self.pixels,mng.pixels)
-        self.polylist=np.append(self.polylist,mng.polylist)
+        self.npoly += mng.npoly
+        self.polyids = np.append(self.polyids,mng.polyids)
+        self.areas = np.append(self.areas,mng.areas)
+        self.weights = np.append(self.weights,mng.weights)
+        self.ncaps = np.append(self.ncaps,mng.ncaps)
+        self.pixels = np.append(self.pixels,mng.pixels)
+        self.polylist = np.append(self.polylist,mng.polylist)
         for name in self.names:
             vars(self)[name]=np.append(vars(self)[name],vars(mng)[name])
     #...
@@ -708,158 +731,158 @@ class Mangle:
         for name in self.names:
             vars(self)[name]=vars(self)[name][sorter]
 
-    def drawpolys(self,skymap=None,**kwargs):
-        """
-    Function to draw a set of mangle polygons.  Wrapper for graphmask.plot_mangle_map
+    # def drawpolys(self,skymap=None,**kwargs):
+    #     """
+    # Function to draw a set of mangle polygons.  Wrapper for graphmask.plot_mangle_map
            
-    Return value(s): - matplotlib.collections.PolyCollection object containing
-                       the polygons that were plotted
-                     - (optional) Skymap instance defining the map projection
-                     e.g. : p=plot_mangle_map('mypolys.pol')
-                            # p is the plotted PolyCollection
-                            p,m=plot_mangle_map('mypolys.pol')
-                            # p is the plotted PolyCollection, m is the Skymap instance
+    # Return value(s): - matplotlib.collections.PolyCollection object containing
+    #                    the polygons that were plotted
+    #                  - (optional) Skymap instance defining the map projection
+    #                  e.g. : p=plot_mangle_map('mypolys.pol')
+    #                         # p is the plotted PolyCollection
+    #                         p,m=plot_mangle_map('mypolys.pol')
+    #                         # p is the plotted PolyCollection, m is the Skymap instance
 
-    Optional keyword arguments:
+    # Optional keyword arguments:
 
-    skymap: a Skymap instance defining the map projection to plot in.  Use this
-            to plot additional polygons in the same plot, e.g.,
-            polys1=mangle.Mangle('polys1.pol')
-            polys2=mangle.Mangle('polys2.pol')
-            p1,m=polys1.drawpolys()
-            p2=polys2.drawpolys(skymap=m)
+    # skymap: a Skymap instance defining the map projection to plot in.  Use this
+    #         to plot additional polygons in the same plot, e.g.,
+    #         polys1=mangle.Mangle('polys1.pol')
+    #         polys2=mangle.Mangle('polys2.pol')
+    #         p1,m=polys1.drawpolys()
+    #         p2=polys2.drawpolys(skymap=m)
 
-    outfilename: name of image file to save.  if None, just draw on screen.
-                 Accepts any format valid for matplotlib's savefig
-                 (usually png, pdf, ps, eps, and svg)
+    # outfilename: name of image file to save.  if None, just draw on screen.
+    #              Accepts any format valid for matplotlib's savefig
+    #              (usually png, pdf, ps, eps, and svg)
 
-    graphicsfilename: name of graphics (.list format) file to save to speed
-                      up subsequent plotting (with graphmask.plot_mangle_map).
-                      Should have a .list suffix.
-                      e.g. : mypolys=mangle.Mangle('mypolys.pol')
-                             p,m=mypolys.drawpolys(graphicsfilename='mypolys.list')
-                             #this takes a long time, and after looking at the plot you decide
-                             #it would be much better to plot the polygons in red.
-                             p=plot_mangle_map('mypolys.list',facecolor='r')
-                             #this plots much faster.
+    # graphicsfilename: name of graphics (.list format) file to save to speed
+    #                   up subsequent plotting (with graphmask.plot_mangle_map).
+    #                   Should have a .list suffix.
+    #                   e.g. : mypolys=mangle.Mangle('mypolys.pol')
+    #                          p,m=mypolys.drawpolys(graphicsfilename='mypolys.list')
+    #                          #this takes a long time, and after looking at the plot you decide
+    #                          #it would be much better to plot the polygons in red.
+    #                          p=plot_mangle_map('mypolys.list',facecolor='r')
+    #                          #this plots much faster.
 
-                       Note that the .list file saved is projection-specific
-                       (and plot-range-specific) since the polygons are trimmed
-                       to the map projection region plotted.  If you change the
-                       projection or the plot range, you might need to use the
-                       original polygon file again.                      
+    #                    Note that the .list file saved is projection-specific
+    #                    (and plot-range-specific) since the polygons are trimmed
+    #                    to the map projection region plotted.  If you change the
+    #                    projection or the plot range, you might need to use the
+    #                    original polygon file again.                      
 
-    pointsper2pi: number of points along each circle edge used in making the
-                  .list file with mangle's poly2poly.  default is 30.
+    # pointsper2pi: number of points along each circle edge used in making the
+    #               .list file with mangle's poly2poly.  default is 30.
 
-    cmap: colormap used to plot the weight values of the polygons.  Can be any
-          valid matplotlib colormap, or a string defining one, e.g. cmap=cm.jet
-          or cmap='jet'.  Default is 'gray_r' which plots black/grayscale polygons
-          on a white background.
+    # cmap: colormap used to plot the weight values of the polygons.  Can be any
+    #       valid matplotlib colormap, or a string defining one, e.g. cmap=cm.jet
+    #       or cmap='jet'.  Default is 'gray_r' which plots black/grayscale polygons
+    #       on a white background.
 
-    plottitle: a title for the plot.
+    # plottitle: a title for the plot.
 
-    autoscale: if autoscale is True, the plot range will be determined by the
-               min and max azimuth and elevation of the polygons. Default is False.
+    # autoscale: if autoscale is True, the plot range will be determined by the
+    #            min and max azimuth and elevation of the polygons. Default is False.
 
-    enlarge_border: fraction to enlarge the range determined by autoscale to give
-                    a reasonable border around the plot.  Default is .1 (10%)
+    # enlarge_border: fraction to enlarge the range determined by autoscale to give
+    #                 a reasonable border around the plot.  Default is .1 (10%)
 
-    bgcolor: background color of the map.  If 'auto', use the color at the zero
-             value of the colormap.  Default is 'auto'.
+    # bgcolor: background color of the map.  If 'auto', use the color at the zero
+    #          value of the colormap.  Default is 'auto'.
 
-    drawgrid: if True, draw grid lines for azimuth and elevation (latitude and longitude)
-              and labels for them.
+    # drawgrid: if True, draw grid lines for azimuth and elevation (latitude and longitude)
+    #           and labels for them.
 
-    gridlinewidth: line width for the grid lines.  Use gridlinewidth=0 to draw
-                   axis labels but no grid lines.
+    # gridlinewidth: line width for the grid lines.  Use gridlinewidth=0 to draw
+    #                axis labels but no grid lines.
 
-    minaz,maxaz,minel,maxel: if these are defined, use these values to define the
-                             corner regions of the plot.
+    # minaz,maxaz,minel,maxel: if these are defined, use these values to define the
+    #                          corner regions of the plot.
 
-    cenaz: central azimuth value to use for map projection (equiv to Basemap's lon_0)
+    # cenaz: central azimuth value to use for map projection (equiv to Basemap's lon_0)
 
-    cenel: central elevation to use for map projeciton (equiv to Basemap's lat_0)
+    # cenel: central elevation to use for map projeciton (equiv to Basemap's lat_0)
 
-    Additional keyword arguments are passed to the Skymap class, which accepts
-    any keyword arguments recognized by the Basemap class.  Commonly used ones are:
+    # Additional keyword arguments are passed to the Skymap class, which accepts
+    # any keyword arguments recognized by the Basemap class.  Commonly used ones are:
 
-    projection: the map projection used by Basemap.  print the basemap module variable
-                ``supported_projections`` to see a list of the options.
+    # projection: the map projection used by Basemap.  print the basemap module variable
+    #             ``supported_projections`` to see a list of the options.
 
-    width, height: the width and height of the region to be plotted,
-                   in units of degrees on the sky.  cenaz,cenel,width,height
-                   can be used instead of minaz,maxaz,minel,maxel to define
-                   the plotted region.
+    # width, height: the width and height of the region to be plotted,
+    #                in units of degrees on the sky.  cenaz,cenel,width,height
+    #                can be used instead of minaz,maxaz,minel,maxel to define
+    #                the plotted region.
 
-    Further additional keyword arguments not accepted by Skymap/Basemap are passed
-    to the draw_weighted_polygons function, which accepts
+    # Further additional keyword arguments not accepted by Skymap/Basemap are passed
+    # to the draw_weighted_polygons function, which accepts
 
-    holes: can be 'cw'==clockwise,'ccw'==counterclockwise, or None.  If 'cw' ('ccw'),
-           polygons with the edge points ordered clockwise (counterclockwise) are
-           treated as holes and plotted in the background color.  Mangle polygons
-           that have holes in them will be written as separate polygons in the .list
-           format, with the exterior border in counterclockwise order and the holes
-           in clockwise order, so 'cw' is the default.
-           If you know your polygons have no holes, using None can speed up
-           the plotting.
-           Note that clockwise and counterclockwise are defined as when looking
-           up at the sky, so it is reversed from what geographers would expect
-           from looking down at the surface of the Earth.
+    # holes: can be 'cw'==clockwise,'ccw'==counterclockwise, or None.  If 'cw' ('ccw'),
+    #        polygons with the edge points ordered clockwise (counterclockwise) are
+    #        treated as holes and plotted in the background color.  Mangle polygons
+    #        that have holes in them will be written as separate polygons in the .list
+    #        format, with the exterior border in counterclockwise order and the holes
+    #        in clockwise order, so 'cw' is the default.
+    #        If you know your polygons have no holes, using None can speed up
+    #        the plotting.
+    #        Note that clockwise and counterclockwise are defined as when looking
+    #        up at the sky, so it is reversed from what geographers would expect
+    #        from looking down at the surface of the Earth.
 
-    emptyweight: value of polygon weight indicating a polygon that should not be plotted.
-                 Default is 0, but emptyweight can be set to something else to allow for
-                 weights whose allowed value range includes 0.
+    # emptyweight: value of polygon weight indicating a polygon that should not be plotted.
+    #              Default is 0, but emptyweight can be set to something else to allow for
+    #              weights whose allowed value range includes 0.
 
-    draw_colorbar: if True, draw a colorbar showing the color scale of the weight
-                   values plotted.  Default is True unless all weight values are
-                   equal. If you want to control how the colorbar is drawn,
-                   use draw_colorbar=False and then use the returned
-                   PolyCollection object as your ScalarMappable object.
+    # draw_colorbar: if True, draw a colorbar showing the color scale of the weight
+    #                values plotted.  Default is True unless all weight values are
+    #                equal. If you want to control how the colorbar is drawn,
+    #                use draw_colorbar=False and then use the returned
+    #                PolyCollection object as your ScalarMappable object.
 
-    vmin,vmax: minimum and maximum values for the colormap scale.
+    # vmin,vmax: minimum and maximum values for the colormap scale.
 
-    Still further keywords are passed on to the PolyCollection plotter, which can
-    used to customize the appearance of the plotted polygons, e.g.,
-    facecolor='red',edgecolor='black',linewidth=0.5.
+    # Still further keywords are passed on to the PolyCollection plotter, which can
+    # used to customize the appearance of the plotted polygons, e.g.,
+    # facecolor='red',edgecolor='black',linewidth=0.5.
 
-    Examples:
-     #plot overlapping SDSS plates in a small example patch of sky,
-     #using a transparent face color to illustrate the overlap.
-     dr9plates=mangle.Mangle('dr9plates.pol')
-     dr9plates.drawpolys(minaz=117.5,maxaz=125.5,minel=30, maxel=36.5,facecolor=[0, 0, 1, .2],linewidth=0)
-     #plot a boss geometry file starting from a .fits file, and save a graphics .list file for faster plotting later
-     geometry=mangle.Mangle('boss_geometry_2011_05_20.fits')
-     p,m=geometry.drawpolys(graphicsfilename='boss_geometry_2011_05_20.list',cenaz=270,gridlinewidth=.1,projection='moll')
-     """
+    # Examples:
+    #  #plot overlapping SDSS plates in a small example patch of sky,
+    #  #using a transparent face color to illustrate the overlap.
+    #  dr9plates=mangle.Mangle('dr9plates.pol')
+    #  dr9plates.drawpolys(minaz=117.5,maxaz=125.5,minel=30, maxel=36.5,facecolor=[0, 0, 1, .2],linewidth=0)
+    #  #plot a boss geometry file starting from a .fits file, and save a graphics .list file for faster plotting later
+    #  geometry=mangle.Mangle('boss_geometry_2011_05_20.fits')
+    #  p,m=geometry.drawpolys(graphicsfilename='boss_geometry_2011_05_20.list',cenaz=270,gridlinewidth=.1,projection='moll')
+    #  """
          
-        if 'graphicsfilename' in kwargs:
-            graphicsfilename=kwargs.pop('graphicsfilename')
-        else:
-            graphicsfilename=None
-        if 'pointsper2pi' in kwargs:
-            pointsper2pi=kwargs.pop('pointsper2pi')
-        else:
-            pointsper2pi=30
-        if skymap is None:
-            if hasattr(self,'graphicsfilename'):
-                p,m=graphmask.plot_mangle_map(self.graphicsfilename,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi,**kwargs)
-            else:
-                p,m=graphmask.plot_mangle_map(self,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi,**kwargs)
-        else:
-            m=skymap
-            if hasattr(self,'graphicsfilename'):
-                azel,weight=m.get_graphics_polygons(self.graphicsfilename,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi)
-            else:
-                azel,weight=m.get_graphics_polygons(self,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi) 
-            p=graphmask.draw_weighted_polygons(m.world2pix(azel),weight=weight,**kwargs)
-        if graphicsfilename is not None:
-            self.graphicsfilename=graphicsfilename
-        howmany=graphmask.expecting()
-        if howmany<2:
-            return p
-        else:
-            return p,m
+    #     if 'graphicsfilename' in kwargs:
+    #         graphicsfilename=kwargs.pop('graphicsfilename')
+    #     else:
+    #         graphicsfilename=None
+    #     if 'pointsper2pi' in kwargs:
+    #         pointsper2pi=kwargs.pop('pointsper2pi')
+    #     else:
+    #         pointsper2pi=30
+    #     if skymap is None:
+    #         if hasattr(self,'graphicsfilename'):
+    #             p,m=graphmask.plot_mangle_map(self.graphicsfilename,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi,**kwargs)
+    #         else:
+    #             p,m=graphmask.plot_mangle_map(self,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi,**kwargs)
+    #     else:
+    #         m=skymap
+    #         if hasattr(self,'graphicsfilename'):
+    #             azel,weight=m.get_graphics_polygons(self.graphicsfilename,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi)
+    #         else:
+    #             azel,weight=m.get_graphics_polygons(self,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi) 
+    #         p=graphmask.draw_weighted_polygons(m.world2pix(azel),weight=weight,**kwargs)
+    #     if graphicsfilename is not None:
+    #         self.graphicsfilename=graphicsfilename
+    #     howmany=graphmask.expecting()
+    #     if howmany<2:
+    #         return p
+    #     else:
+    #         return p,m
         
     ## def graphics(self):
     ##     """Return an array of edge points, to plot these polygons.
@@ -1023,7 +1046,7 @@ class Mangle:
                 if ss==None:
                     pixel = 0
                 else:
-                    pixel=float(ss.group(1))
+                    pixel = float(ss.group(1))
                 self.polyids[counter] = ipoly
                 self.areas[counter] = area
                 self.weights[counter] = weight
@@ -1041,9 +1064,9 @@ class Mangle:
                     else:
                         cap  = [float(x) for x in string.split(line)]
                     self.polylist[counter][i] = cap
-                ss=None
+                ss = None
                 counter += 1
-        w,=np.where(self.pixels != 0)
+        w, = np.where(self.pixels != 0)
         #self.npixels = len(set(self.pixels))
         self.npixels = np.unique(w).size
         ff.close()
@@ -1144,7 +1167,7 @@ class Mangle:
             reBalkanized = re.compile(r"balkanized")
             reReal = re.compile(r"real\s+([-+]?\d+)")
             reHeaderKeywords = re.compile(r"([-+]?\d+)\s+polygons|pixelization\s+([-+]?\d+)([sd])|balkanized|snapped|real\s+([-+]?\d+)")
-            cardlist=header.ascardlist()
+            cardlist = header.ascard
 
             for card in cardlist:
                 line=str(card)
@@ -1504,6 +1527,9 @@ class Mangle:
             else:
                 raise IOError,"Unknown file extension for %s"%filename
 
+        if self.pixelization:
+            self.pixel_dict = self._create_pixel_dict()
+
         if len(self.polylist) != self.npoly:
             print "Got %d polygons, expecting %d."%\
               (len(self.polylist),self.npoly)
@@ -1511,7 +1537,7 @@ class Mangle:
             if 'ids' not in self.names:
                 self.add_column('ids',self.polyids)
                 self.polyids=arange(0,self.npoly,dtype=int)
-        else:                
+        else:
             # Check whether the polyids are sequential and range from 0 to npoly-1
             # If they don't, then there may be a problem with the file.
             # NOTE: this should always be correct for current_boss_geometry.
@@ -1534,5 +1560,21 @@ class Mangle:
                 print "To write polygon file retaining the input ids, use 'keep_ids=True' in writeply()."
                 self.add_column('ids',self.polyids)
                 self.polyids=arange(0,self.npoly,dtype=int)
+    #...
+     
+    def _create_pixel_dict(self):
+        """
+        Return dictionary of what indexes are in each pixel,
+        to improve pixel-based polyid searches.
+        """
+        start = time.time()
+        pixel_dict = {}
+        for i,pix in enumerate(self.pixels):
+            if pix not in pixel_dict:
+                pixel_dict[pix] = []
+            pixel_dict[pix].append(i)
+        end = time.time()
+        #print "!!!pixel_dict creation time:",end-start
+        return pixel_dict
      #...
 #...
