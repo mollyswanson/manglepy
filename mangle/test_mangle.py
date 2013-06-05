@@ -3,55 +3,76 @@
 Test class for the mangle version of python.
 
 The goal is to test both the speed and correctness of improvements to
-mangle.py, compared to both Martin White's original version, and to the
-known-good, very fast C/Fortran version.
+mangle.py, compared to the known-good, fast C/Fortran version.
 
-Initial Version: 2010.07.14 John K. Parejko
+Run with:
+    python test_mangle.py
 """
 
+# Initial Version: 2010.07.14 John K. Parejko
+# 2013.06.04 jkp: updated to test pixelized masks, and do everything vs. cmdline version
+
 import unittest
-import numpy
-import os
+import numpy as np
+import os, os.path
 import pyfits
 import csv
 import subprocess
 import time
 import tempfile
-import glob
 
 import mangle
-import mangle_orig
 
 class TestMangle(unittest.TestCase):
+    def __init__(self,*args, **kwargs):
+        """Set up things for every test,
+        so we don't have to regenerate randoms every test"""
+        # TBD jkp: need to either include these in the mangle release
+        # or create some sample polygon files (one pixelized, one not).
+        # A smaller example polygon file would reduce the time it takes to run
+        # the tests, since reading the files is a substantial fraction of the runtime.
+        self.polyfile = '../../geometry/boss_geometry_2012_06_18.ply'
+        self.polyfile_pix = '../../geometry/centerpost_mask.ply'
+        np.random.seed(100)
+
+        # generate some random on-sky points
+        # NOTE: increase the number of points to make test run longer,
+        # to better measure the commandline vs. python versions.
+        Npoints = 10000
+        z = np.random.uniform(-1,1,size=Npoints)
+        RA = np.random.uniform(0,360,size=Npoints)
+        Dec = np.degrees(np.arcsin(z))
+        formats = ['f8','f8']
+        names = ['RA','DEC']
+        dtype = zip(names,formats)
+        self.data = np.array(zip(RA,Dec),dtype=dtype).view(np.recarray)
+
+        self.writetestfile = 'mangle_test_polys.ply'
+
+        unittest.TestCase.__init__(self, *args, **kwargs)
+    #...
+
     def setUp(self):
+        """
+        Set up for an individual test.
+
+        We want to create a new mangle instance for every test,
+        incase we mess it up while testing. This makes the tests take longer,
+        but that's ok as it isn't part of the timed portions.
+        """
         # set up the mangle polygon geometries
-        #self.polyfile = '../data/current_boss_geometry.ply'
-        #self.polyfile = '../data/geometry/geometry-boss_1-11-balkanized.ply'
-        #self.polyfile = '../data/geometry/geometry-boss_7-10.ply'
-        #self.polyfile = '/Users/parejkoj/astronomy/BOSS/data/geometry/geometry-boss_7-11-balkanized.ply'
-        self.polyfile = '/Users/parejkoj/astronomy/BOSS/data/geometry/geometry-boss7.ply'
         self.mng = mangle.Mangle(self.polyfile)
-        self.mng_orig = mangle_orig.Mangle(self.polyfile)
+        self.mng_pix = mangle.Mangle(self.polyfile_pix)
+        #print 'Using',self.polyfile,'as the polygon file.'
+        #print 'Using',self.polyfile,'as the pixelized polygon file.'
 
         # just require that the fits file exist for now.
         self.fitsfile = self.polyfile.split('.ply')[0]+'.fits'
-        if glob.glob(self.fitsfile):
+        if os.path.exists(self.fitsfile):
             self.mng_fits = mangle.Mangle(self.fitsfile)
         else:
             self.mng_fits = None
 
-        # read in some test data of galaxies
-        # these two lines give a relatively quick test
-        data = pyfits.open('/Users/parejkoj/astronomy/BOSS/data/final-boss7.fits')
-        self.data = data[1].data[:1000]
-        # these two lines give a very long test, and are not recommended
-        # for use with any non-vectorized mangle, as they will take for ever.
-        #data = pyfits.open('/Users/parejkoj/astronomy/BOSS/data/samples/boss+legacy_7-12_CMASS-randoms-2000000.fits')
-        #self.data = data[1].data
-        data = None
-
-        self.writetestfile = './mangle_test_polys.ply'
-        
         # Write out a file containing RA DEC for the commandline mangle
         self.mangletestfile = './mangle_test_data.dat'
         outfile = file(self.mangletestfile,'w')
@@ -60,19 +81,27 @@ class TestMangle(unittest.TestCase):
         outfile.write('#This file written by test_mangle for unittesting.\n')
         outfile.write('#It may be safely deleted.\n')
         outcsv.writerows(zip(self.data.RA,self.data.DEC))
+        outfile.close()
     #...
 
     def tearDown(self):
-        os.remove(self.mangletestfile)
-        if glob.glob(self.writetestfile):
+        if os.path.exists(self.mangletestfile):
+            os.remove(self.mangletestfile)
+        if os.path.exists(self.writetestfile):
             os.remove(self.writetestfile)
     #...
 
-    def do_polyid_cmd(self):
-        """Run the commandline version of polyid.
-        Return the polygons and the total time the command took."""
+    def do_polyid_cmd(self,pix=False):
+        """
+        Run the commandline version of polyid.
+        Return the polygons and the total time the command took.
+        Set pix to use the pixelized polygon mask.
+        """
         polyidoutfile = './mangle_test_polyid.dat'
-        polyid_call = 'polyid -q '+' '.join((self.polyfile,self.mangletestfile,polyidoutfile))
+        if pix:
+            polyid_call = 'polyid -q '+' '.join((self.polyfile_pix,self.mangletestfile,polyidoutfile))
+        else:
+            polyid_call = 'polyid -q '+' '.join((self.polyfile,self.mangletestfile,polyidoutfile))
         # NOTE: have to use time.time() here because of clock() returns the
         # CPU time of python, not of external programs.
         start = time.time()
@@ -87,67 +116,28 @@ class TestMangle(unittest.TestCase):
             else:
                 polyids.append(-1)
         os.remove(polyidoutfile)
-        return numpy.array(polyids),elapsed
-    #...
-    
-    def test_totalarea(self):
-        start = time.clock()
-        total1 = self.mng_orig.totalarea()
-        elapsed1 = (time.clock() - start)
-        
-        start = time.clock()
-        total2 = self.mng.totalarea()
-        elapsed2 = (time.clock() - start)
-        
-        self.assertEqual(total1,total2)
-        print 'Elapsed time for total area (orig,new):',elapsed1,elapsed2
+        return np.array(polyids),elapsed
     #...
 
     def test_fits_polyid(self):
         """Compare reading data from a .ply file with a .fits file: polyids"""
         ply = self.mng.get_polyids(self.data.RA,self.data.DEC)
         fits = self.mng_fits.get_polyids(self.data.RA,self.data.DEC)
-        self.assertTrue(numpy.all(ply == fits))
+        self.assertTrue(np.all(ply == fits))
     #...
 
     def test_fits_areas(self):
         """Compare reading data from a .ply file with a .fits file: areas."""
         ply = self.mng.get_areas(self.data.RA,self.data.DEC)
         fits = self.mng_fits.get_areas(self.data.RA,self.data.DEC)
-        self.assertTrue(numpy.all(ply == fits))
+        self.assertTrue(np.all(ply == fits))
     #...
 
     def test_fits_weights(self):
         """Compare reading data from a .ply file with a .fits file: weights."""
         ply = self.mng.get_weights(self.data.RA,self.data.DEC)
         fits = self.mng_fits.get_weights(self.data.RA,self.data.DEC)
-        self.assertTrue(numpy.all(ply == fits))
-    #...
-
-    def test_polyid(self):
-        """Compare the new mangle.py with Martin White's orignal"""
-        ids_new = []
-        ids_orig = []
-        start = time.clock()
-        for x in self.data:
-            ids_orig.append(self.mng_orig.polyid(x['RA'],x['DEC']))
-        elapsed1 = (time.clock() - start)
-
-        start = time.clock()
-        for x in self.data:
-            ids_new.append(self.mng.polyid(x['RA'],x['DEC']))
-        elapsed2 = (time.clock() - start)
-
-        self.assertEqual(ids_new,ids_orig)
-
-        start = time.clock()
-        ids_vec = self.mng.get_polyids(self.data.RA,self.data.DEC)
-        elapsed3 = (time.clock() - start)
-        # the results of the vector version are a numpy array, not a list
-        ids_orig = numpy.array(ids_orig)
-        self.assertTrue(numpy.all(ids_vec == ids_orig))
-        print 'Elapsed time for polyid (orig,new):',
-        print elapsed1,elapsed2
+        self.assertTrue(np.all(ply == fits))
     #...
 
     def test_polyid_fast(self):
@@ -156,61 +146,30 @@ class TestMangle(unittest.TestCase):
         ids_vec = self.mng.get_polyids(self.data.RA,self.data.DEC)
         elapsed1 = (time.clock() - start)
         ids_cmd,elapsed2 = self.do_polyid_cmd()
-        self.assertTrue(numpy.all(ids_vec == ids_cmd))
+        self.assertTrue(np.all(ids_vec == ids_cmd))
         print 'Elapsed time for polyid (new_vector,C/Fortran):',
         print elapsed1,elapsed2
     #...
 
-    def test_area(self):
-        # Compare the new mangle.py with Martin White's orignal
-        area_new = []
-        area_orig = []
-        start = time.clock()
-        for x in self.data:
-            area_orig.append(self.mng_orig.area(x['RA'],x['DEC']))
-        elapsed1 = (time.clock() - start)
-
-        start = time.clock()
-        for x in self.data:
-            area_new.append(self.mng.area(x['RA'],x['DEC']))
-        elapsed2 = (time.clock() - start)
-
-        self.assertEqual(area_new,area_orig)
-
-        start = time.clock()
-        area_new = self.mng.get_areas(self.data.RA,self.data.DEC)
-        elapsed3 = (time.clock() - start)
-        # the results of the vector version are a numpy array, not a list
-        area_orig = numpy.array(area_orig)
-        self.assertTrue(numpy.all(area_new == area_orig))
-        print 'Elapsed time for area (orig,new,new_vector):',
-        print elapsed1,elapsed2,elapsed3
+    def test_areas(self):
+        """Compare areas from mangle.py vs. areas from polyids of commandline version."""
+        return
     #...
-
+    
     def test_weights(self):
-        # Compare the new mangle.py with Martin White's orignal
-        weight_new = []
-        weight_orig = []
+        """Compare weights from mangle.py vs. weights from polyids of commandline version."""
+        return
+    #...
+    
+    def test_pixelization(self):
+        """Test how mangle.py handles a pixelized mask compared with the commandline version."""
         start = time.clock()
-        for x in self.data:
-            weight_orig.append(self.mng_orig.weight(x['RA'],x['DEC']))
+        ids_vec = self.mng_pix.get_polyids(self.data.RA,self.data.DEC)
         elapsed1 = (time.clock() - start)
-
-        start = time.clock()
-        for x in self.data:
-            weight_new.append(self.mng.weight(x['RA'],x['DEC']))
-        elapsed2 = (time.clock() - start)
-
-        self.assertEqual(weight_new,weight_orig)
-
-        start = time.clock()
-        weight_new = self.mng.get_weights(self.data.RA,self.data.DEC)
-        elapsed3 = (time.clock() - start)
-        # the results of the vector version are a numpy array, not a list
-        weight_orig = numpy.array(weight_orig)
-        self.assertTrue(numpy.all(weight_new == weight_orig))
-        print 'Elapsed time for weight (orig,new,new_vector):',
-        print elapsed1,elapsed2,elapsed3
+        ids_cmd,elapsed2 = self.do_polyid_cmd(pix=True)
+        self.assertTrue(np.all(ids_vec == ids_cmd))
+        print 'Elapsed time for pixelized polyid (new_vector,C/Fortran):',
+        print elapsed1,elapsed2
     #...
 
     def test_getitem(self):
@@ -226,13 +185,13 @@ class TestMangle(unittest.TestCase):
         """Test writing the polygon file and re-reading it."""
         self.mng.writeply(self.writetestfile)
         mng_temp = mangle.Mangle(self.writetestfile)
-        numpy.testing.assert_allclose(mng_temp.polyids,self.mng.polyids)
-        numpy.testing.assert_allclose(mng_temp.areas,self.mng.areas)
-        numpy.testing.assert_allclose(mng_temp.weights,self.mng.weights)
+        np.testing.assert_allclose(mng_temp.polyids,self.mng.polyids)
+        np.testing.assert_allclose(mng_temp.areas,self.mng.areas)
+        np.testing.assert_allclose(mng_temp.weights,self.mng.weights)
         for poly1,poly2 in zip(mng_temp.polylist,self.mng.polylist):
-            numpy.testing.assert_allclose(poly1,poly2)
+            np.testing.assert_allclose(poly1,poly2)
         if 'pixels' in dir(self.mng):
-            numpy.testing.assert_allclose(mng_temp.pixels,self.mng.pixels)
+            np.testing.assert_allclose(mng_temp.pixels,self.mng.pixels)
     #...
 #...
 
