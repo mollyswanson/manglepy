@@ -831,7 +831,7 @@ if useBasemap:
                         projection='cyl'
                 #convert azimuth values into longitude values
                 if (projection in _pseudocyl) or (projection in _cylproj):
-                    lon_0=cenaz
+                    lon_0=-cenaz
                 else:
                     lon_0=-cenaz
                 #call Basemap's init with celestial defaults
