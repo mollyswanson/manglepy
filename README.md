@@ -4,7 +4,8 @@ Requirements:
 Requires Python verison 2.5 or greater. 2.7 is preferrable for
 plotting polygons.
 
-Requires that the mangle binary files and scripts are in the $PATH.
+Some operations require that the mangle binary files and scripts are
+in the $PATH.
 
 http://space.mit.edu/~molly/mangle/download/
 
@@ -15,8 +16,12 @@ Additional python library requirements:
 
 -- pyfits >= 3.0.4
 
-If you recieve errors like "Record array does not contain 'columnns'
+If you recieve errors like "Record array does not contain 'columns'
 attribute," then you need to update your version of pyfits.
+
+For plotting polygons:
+
+-- matplotlib > 1.0
 
 Speeding up mangle.py:
 ----------------------
