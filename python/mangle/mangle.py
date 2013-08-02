@@ -65,7 +65,7 @@ from itertools import izip
 import time
 
 __author__ = "John Parejko, Martin White, Molly Swanson"
-__version__ = "3.0 $Rev$"
+__version__ = "3.1 $Rev$"
 __email__  = "john.parejko@yale.edu, mswanson@cfa.harvard.edu"
 
 try:
@@ -1139,53 +1139,61 @@ class Mangle:
             self.polylist[i][...,:-1] = array(w.xcaps[:3*n]).reshape(n,3)
             self.polylist[i][...,-1] = w.cmcaps[:n]
     #...
-
+    
+    def _read_mangled_fits_header(self,header):
+        """
+        Try to read in a misformatted fits header, that looks like the header
+        of a .ply file.
+        """
+        rePixelization = re.compile(r"pixelization\s+([-+]?\d+)([sd])")
+        reSnapped = re.compile(r"snapped")
+        reBalkanized = re.compile(r"balkanized")
+        reReal = re.compile(r"real\s+([-+]?\d+)")
+        reHeaderKeywords = re.compile(r"([-+]?\d+)\s+polygons|pixelization\s+([-+]?\d+)([sd])|balkanized|snapped|real\s+([-+]?\d+)")
+        cardlist = header.ascard
+        
+        for card in cardlist:
+            line=str(card)
+            sss=reHeaderKeywords.search(line)
+            #if line starts with a header keyword, add the info as metadata
+            if sss is not None:
+                if rePixelization.search(line) is not None:
+                    result = rePixelization.search(line)
+                    self.pixelization = (int(result.group(1)),result.group(2))
+                elif reReal.search(line) is not None:
+                    result = reReal.search(line)
+                    self.real = int(resulth.group(3))
+                elif reSnapped.search(line) is not None: 
+                    self.snapped = True
+                elif reBalkanized.search(line) is not None:
+                    self.balkanized = True
+    
     def read_fits_file(self,filename,real=None):
         """Read in polygons from a .fits file."""
-        data = pyfits.open(filename,memmap=True)[1].data
-        header = pyfits.open(filename,memmap=True)[0].header
+        data = pyfits.open(filename)[1].data
+        header = pyfits.open(filename)[0].header
         self.npoly = len(data)
-        self.pixelization=None
-        self.snapped=False
-        self.balkanized=False
-        self.real=8
         self.names=[]
         self.formats=()
         names = data.dtype.names
         formats=data.formats
-
+        
         #if mangle header keywords are present, use them
-        if ('PIXRES' in header.keys()) & ('PIXTYPE' in header.keys()) &  ('SNAPPED' in header.keys()) &  ('BLKNIZED' in header.keys())  &  ('REAL' in header.keys()):
-            self.pixelization=(header['PIXRES'], header['PIXTYPE'])
-            self.snapped=header['SNAPPED']
-            self.balkanized=header['BLKNIZED']
-            self.real=header['REAL']
-        #if mangle header keywords aren't present, check for text in header that looks like the header of an ascii polygon file:
+        if 'PIXRES' in header.keys() and 'PIXTYPE' in header.keys():
+            self.pixelization = (header.get('PIXRES'), header.get('PIXTYPE'))
         else:
-            rePixelization = re.compile(r"pixelization\s+([-+]?\d+)([sd])")
-            reSnapped = re.compile(r"snapped")
-            reBalkanized = re.compile(r"balkanized")
-            reReal = re.compile(r"real\s+([-+]?\d+)")
-            reHeaderKeywords = re.compile(r"([-+]?\d+)\s+polygons|pixelization\s+([-+]?\d+)([sd])|balkanized|snapped|real\s+([-+]?\d+)")
-            cardlist = header.ascard
-
-            for card in cardlist:
-                line=str(card)
-                sss=reHeaderKeywords.search(line)
-                #if line starts with a header keyword, add the info as metadata
-                if sss is not None:
-                    if rePixelization.search(line) is not None:
-                        result = rePixelization.search(line)
-                        self.pixelization = (int(result.group(1)),result.group(2))
-                    elif reReal.search(line) is not None:
-                        result = reReal.search(line)
-                        self.real = int(resulth.group(3))
-                    elif reSnapped.search(line) is not None: 
-                        self.snapped = True
-                    elif reBalkanized.search(line) is not None:
-                        self.balkanized = True
-
-        #if a value for real is given in the keyword args, force it to override what's in the file
+            self.pixelization = None
+        self.snapped = header.get('SNAPPED',False)
+        self.balkanized = header.get('BLKNIZED',False)
+        self.real = header.get('REAL',8)
+        
+        # if mangle header keywords aren't present, check for text in header
+        # that looks like the header of an ascii polygon file:
+        # NOTE: this means the header is not a valid FITS header!
+        self._read_mangled_fits_header(header)
+            
+        # if a value for real is given in the keyword args, force it to 
+        # override what's in the file
         if real is not None:
             self.real=real
         #if self.real = 10 and longdouble_utils imported successfully, use long doubles. Otherwise just use float64
@@ -1523,6 +1531,8 @@ class Mangle:
             if (filename[-4:] == '.ply') | (filename[-4:] == '.pol'):
                 self.read_ply_file(filename,read_extra_columns=read_extra_columns,real=real)
             elif filename[-5:] == '.fits':
+                self.read_fits_file(filename,real=real)
+            elif filename[-8:] == '.fits.gz':
                 self.read_fits_file(filename,real=real)
             else:
                 raise IOError,"Unknown file extension for %s"%filename
