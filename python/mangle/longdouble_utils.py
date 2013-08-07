@@ -1,39 +1,45 @@
 #longdouble_utils.py
 """
-Basic utility functions for converting between strings and np.float128 floating point numbers.
+Basic utility functions for converting between strings and np.float128
+floating point numbers.
 
-np.float128's are actually C-style longdoubles in an 80-bit format, not full quad-precision,
-(see http://en.wikipedia.org/wiki/Extended_precision) but are stored in 128 bits of memory.
+np.float128's are actually C-style longdoubles in an 80-bit format,
+not full quad-precision, (see http://en.wikipedia.org/wiki/Extended_precision)
+but are stored in 128 bits of memory.
 
-Python's native methods for converting between strings and floating point numbers do
-not work for np.float128's because the numbers get converted to np.float64's in the process.
+Python's native methods for converting between strings and floating
+point numbers do not work for np.float128's because the numbers get
+converted to np.float64's in the process.
 
 Example:
-import numpy as np
-np.longdouble(0.1234567890123456789)
+    import numpy as np
+    np.longdouble(0.1234567890123456789)
 
 produces an output of
-0.12345678901234567737
+    0.12345678901234567737
 
-The last few digits are lost here because the string of numbers is first converted
-to a double (np.float64), which can only store ~15 significant decimal digits.
+The last few digits are lost here because the string of numbers is
+first converted to a double (np.float64), which can only store ~15
+significant decimal digits.
 
-To avoid this issue, this package uses the arbitrary floating point precision mpmath
+To avoid this issue, this package uses the arbitrary floating point
+precision mpmath:
 http://code.google.com/p/mpmath/
 to convert the string and turn it into the correct longdouble number:
-
-import longdouble_utils.py as ld
-ld.string2longdouble('0.1234567890123456789')
+    import longdouble_utils.py as ld
+    ld.string2longdouble('0.1234567890123456789')
 
 produces an output of
-0.1234567890123456789
+    0.1234567890123456789
 
 Here, ~19 decimal digits of precision are accurately retained as a longdouble.
 
-This package uses an intermediary format of a 'doubledouble', which is a tuple of 2
-doubles where the first double has the same value as the result of simply casting the input string
-to a double, and the 2nd double contains a correction factor such that upconverting both of the
-doubles to longdoubles and adding them together yields the correct longdouble value.
+This package uses an intermediary format of a 'doubledouble', which is
+a tuple of 2 doubles where the first double has the same value as the
+result of simply casting the input string to a double, and the 2nd
+double contains a correction factor such that upconverting both of the
+doubles to longdoubles and adding them together yields the correct
+longdouble value.
 
 This technique is based on algorithm from
 http://web.mit.edu/tabbott/Public/quaddouble-debian/qd-2.3.4-old/docs/qd.pdf
