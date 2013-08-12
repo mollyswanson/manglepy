@@ -7,11 +7,14 @@ from numpy.distutils.misc_util import get_numpy_include_dirs
 incdir = get_numpy_include_dirs()
 
 #ext_modules = [Extension("mangle_utils", ["mangle_utils.c"], include_dirs=incdir)]
-ext_modules = [Extension("mangle.mangle_utils", ["mangle/mangle_utils.c"], include_dirs=incdir)]
+ext_modules = [Extension("mangle.mangle_utils",
+                         ["python/mangle/mangle_utils.c"],
+                         include_dirs=incdir)]
 
 setup(
-    name = 'mangle',
-    ext_modules = ext_modules, 
-    packages=['mangle']
+      name = 'mangle',
+      ext_modules = ext_modules, 
+      package_dir = {'':'python'},
+      packages=['mangle']
 )
 
