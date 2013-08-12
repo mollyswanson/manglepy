@@ -25,8 +25,8 @@ class MangleTester(object):
         # or create some sample polygon files (one pixelized, one not).
         # A smaller example polygon file would reduce the time it takes to run
         # the tests, since reading the files is a substantial fraction of the runtime.
-        #self.polyfile = '../../geometry/mask_DR10v8_CMASS_North.ply'
-        self.polyfile = '../../geometry/boss_geometry_2011_06_10.ply'
+        self.polyfile = '../../geometry/mask_DR10v8_CMASS_North.ply'
+        #self.polyfile = '../../geometry/boss_geometry_2011_06_10.ply'
         self.polyfile_pix = '../../geometry/centerpost_mask.ply'
         
         # generate some random on-sky points

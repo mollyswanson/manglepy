@@ -23,6 +23,9 @@ class TestMangle(mangleTester.MangleTester,unittest.TestCase):
         mangleTester.MangleTester.__init__(self,*args,**kwargs)
         unittest.TestCase.__init__(self, *args, **kwargs)
     
+    def runTest(self):
+        pass
+    
     def test_slice_weight(self):
         """Test slicing on polygon weights."""
         test = self.mng.weights > 0
@@ -33,7 +36,15 @@ class TestMangle(mangleTester.MangleTester,unittest.TestCase):
                 result1[i] = -1
         mng2 = self.mng[test]
         result2 = mng2.get_polyids(self.data.RA,self.data.DEC)
-        self.assertTrue(np.all(result2 == result1))
+        # the polyids themselves will be different, so we have to test on
+        # the actual polygon identities.
+        test1 = (result1 > 0)
+        test2 = (result2 > 0)
+        # Did everthing match that should have?
+        self.assertTrue(np.all(test1 == test2))
+        # Do the polygons themselves match 1-1?
+        for x,y in zip(self.mng.polylist[result1[test1]],mng2.polylist[result2[test2]]):
+            self.assertTrue(np.all(x == y))
         
     def test_slice_generic(self):
         """Test creating a generic index slice."""
@@ -42,6 +53,7 @@ class TestMangle(mangleTester.MangleTester,unittest.TestCase):
         mng2 = self.mng[[1,2,3,4,5,6,7,8,9]]
     #...
     
+    #@unittest.skip('skipping fits tests')
     def test_fits_polyid(self):
         """Compare reading data from a .ply file with a .fits file: polyids"""
         ply = self.mng.get_polyids(self.data.RA,self.data.DEC)
@@ -49,6 +61,7 @@ class TestMangle(mangleTester.MangleTester,unittest.TestCase):
         self.assertTrue(np.all(ply == fits))
     #...
 
+    #@unittest.skip('skipping fits tests')
     def test_fits_areas(self):
         """Compare reading data from a .ply file with a .fits file: areas."""
         ply = self.mng.get_areas(self.data.RA,self.data.DEC)
@@ -56,6 +69,7 @@ class TestMangle(mangleTester.MangleTester,unittest.TestCase):
         self.assertTrue(np.all(ply == fits))
     #...
 
+    #@unittest.skip('skipping fits tests')
     def test_fits_weights(self):
         """Compare reading data from a .ply file with a .fits file: weights."""
         ply = self.mng.get_weights(self.data.RA,self.data.DEC)
