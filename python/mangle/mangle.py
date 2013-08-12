@@ -60,12 +60,11 @@ import re
 import string
 import copy
 from itertools import izip
-#import graphmask
 
 import time
 
 __author__ = "John Parejko, Martin White, Molly Swanson"
-__version__ = "3.1 $Rev$"
+__version__ = "3.2 $Rev$"
 __email__  = "john.parejko@yale.edu, mswanson@cfa.harvard.edu"
 
 try:
@@ -682,6 +681,9 @@ class Mangle:
         mng2.weights = mng2.weights[idx]
         mng2.ncaps = mng2.ncaps[idx]
         mng2.pixels = mng2.pixels[idx]
+        # have to recompute the pixel dict, as the the polygon indicies are different.
+        if self.pixelization:
+            mng2.pixel_dict = mng2._create_pixel_dict()
         for name in mng2.names:
             vars(mng2)[name]=vars(mng2)[name][idx]
         return mng2
