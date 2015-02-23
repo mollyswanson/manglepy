@@ -61,7 +61,13 @@ import os
 import re
 import string
 import copy
-from itertools import izip
+
+try:
+    # Python 2.x
+    from itertools import izip
+except ImportError:
+    # Python 3.x
+    izip = zip
 
 import time
 
@@ -94,7 +100,7 @@ except ImportError as e:
     print("To use longdouble precision (compatible with real*10 version of mangle), install mpmath:")
     print("http://code.google.com/p/mpmath/")
     print("and longdouble_utils:")
-    print("[add link to longdouble_utils on github]")
+    print("https://github.com/mollyswanson/longdouble_utils")
     twopi = 2.*pi
 else:
     uselongdoubles = True
