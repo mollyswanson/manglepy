@@ -12,6 +12,7 @@ Run with:
 # Initial Version: 2010.07.14 John K. Parejko
 # 2013.06.04 jkp: updated to test pixelized masks, and do everything vs. cmdline version
 
+from __future__ import print_function
 import unittest
 import numpy as np
 import os, os.path
@@ -87,8 +88,8 @@ class TestMangleTiming(unittest.TestCase,mangleTester.MangleTester):
         elapsed1 = (time.clock() - start)
         ids_cmd,elapsed2 = self.do_polyid_cmd()
         self.assertTrue(np.all(ids_vec == ids_cmd))
-        print 'Elapsed time for polyid (new_vector,C/Fortran):',
-        print elapsed1,elapsed2
+        print('Elapsed time for polyid (new_vector,C/Fortran):',)
+        print(elapsed1,elapsed2)
     #...
 
     def test_areas(self):
@@ -108,8 +109,8 @@ class TestMangleTiming(unittest.TestCase,mangleTester.MangleTester):
         elapsed1 = (time.clock() - start)
         ids_cmd,elapsed2 = self.do_polyid_cmd(pix=True)
         self.assertTrue(np.all(ids_vec == ids_cmd))
-        print 'Elapsed time for pixelized polyid (new_vector,C/Fortran):',
-        print elapsed1,elapsed2
+        print('Elapsed time for pixelized polyid (new_vector,C/Fortran):',)
+        print(elapsed1,elapsed2)
     #...
 #...
 

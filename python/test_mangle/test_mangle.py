@@ -8,6 +8,7 @@ Run with:
 or give --verbose to get a print out of each test as it is run.
 """
 
+from __future__ import print_function
 import unittest
 import numpy as np
 import pyfits
