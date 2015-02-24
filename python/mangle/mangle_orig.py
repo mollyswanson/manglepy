@@ -15,6 +15,8 @@
 #			12-May-2010	(Allow no space before "caps")
 #
 
+from __future__ import print_function
+
 import os
 import re
 import string
@@ -179,7 +181,7 @@ class Mangle:
         the Mangle mask.
         """
         if not os.path.exists(fn):
-            raise RuntimeError,"Can not find %s"%fn
+            raise RuntimeError("Can not find %s"%fn)
         #
         # It's useful to pre-compile a regular expression for a mangle line
         # defining a polygon.
@@ -192,7 +194,7 @@ class Mangle:
         line = ff.readline()
         ss = re.match(r"(\d+)\s+polygons",line)
         if ss==None:
-            raise RuntimeError,"Can not parse 1st line of %s"%fn
+            raise RuntimeError("Can not parse 1st line of %s"%fn)
         else:
             self.npoly = int( ss.group(1) )
         #
@@ -227,6 +229,6 @@ class Mangle:
                 ss=None
         ff.close()
         if len(self.polylist) != self.npoly:
-            print "Got %d polygons, expecting %d."%\
-              (len(self.polylist),self.npoly)
+            print("Got %d polygons, expecting %d."%\
+              (len(self.polylist),self.npoly))
         #

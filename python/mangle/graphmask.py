@@ -34,6 +34,8 @@ sets of points along the edge of each polygon for plotting
 a given region
 """
 
+from __future__ import print_function
+
 import matplotlib
 #if calling from command line, use a backend without a gui so the image is written straight to a file
 if __name__=='__main__':
@@ -59,17 +61,17 @@ _pseudocyl = ['moll','robin','sinu','mbtfpq','vandg','hammer']
 try:
     from mpl_toolkits.basemap import Basemap as Basemap
 except ImportError as e:
-    print "WARNING: could not import Basemap:",e
-    print "Polygons will be plotted using azimuth and elevation values for x and y."
-    print "Visit http://matplotlib.github.com/basemap/ to download and install Basemap."
+    print("WARNING: could not import Basemap:",e)
+    print("Polygons will be plotted using azimuth and elevation values for x and y.")
+    print("Visit http://matplotlib.github.com/basemap/ to download and install Basemap.")
     # TO DO: check basemap version and only print out below if applicable
-    #print "basemap versions earlier than 1.0.3 (not yet released as of 30 Nov 2011) require patch - do"
-    #print "  import mpl_toolkits.basemap"
-    #print "  mpl_toolkits.basemap.__file__"
-    #print "to find the location of the __init__.py file to patch, and replace /path-to/ with the path in the following."
-    #print "then do"
-    #print "sudo patch /path-to/__init__.py -i basemapinit.patch -o __init__.py.new"
-    #print "sudo mv __init__.py.new /path-to/__init__.py"
+    #print("basemap versions earlier than 1.0.3 (not yet released as of 30 Nov 2011) require patch - do")
+    #print("  import mpl_toolkits.basemap")
+    #print("  mpl_toolkits.basemap.__file__")
+    #print("to find the location of the __init__.py file to patch, and replace /path-to/ with the path in the following.")
+    #print("then do")
+    #print("sudo patch /path-to/__init__.py -i basemapinit.patch -o __init__.py.new")
+    #print("sudo mv __init__.py.new /path-to/__init__.py")
     useBasemap = False
 else:
     useBasemap = True
@@ -130,8 +132,8 @@ def main(argv=None):
             key,value=s.split('=',1)
             #ignore an unrecognized argument without an equals sign
         except ValueError:
-            print "Ignoring keyword argument "+s+" because it does not contain an equals sign."
-            print "To pass keyword arguments, use key=value on command line."
+            print("Ignoring keyword argument "+s+" because it does not contain an equals sign.")
+            print("To pass keyword arguments, use key=value on command line.")
         #check to see if value given is an integer, float, or True/False/None.  Otherwise pass it along as a string
         else:
             try:
@@ -148,9 +150,9 @@ def main(argv=None):
                         value=None
             kwargs[key]=value
     #call plot_mangle_map to draw the polygons
-    print "plotting polygons from " + args.infile + " ..."
+    print("plotting polygons from " + args.infile + " ...")
     plot_mangle_map(args.infile,outfilename=args.outfile,autoscale=args.autoscale,minaz=minaz,maxaz=maxaz,minel=minel,maxel=maxel,**kwargs)
-    print "plotted polygons in " + args.outfile + "."
+    print("plotted polygons in " + args.outfile + ".")
 
 
 def plot_mangle_map(polys, outfilename=None,graphicsfilename=None,cmap='gray_r',plottitle=None,autoscale=False,enlarge_border=.1,bgcolor='auto',drawgrid=True,gridlinewidth=.1,pointsper2pi=30,minaz=None,maxaz=None,minel=None,maxel=None,cenaz=None,cenel=None,**kwargs):
@@ -681,7 +683,7 @@ def get_graphics_polygons(polys,trimmer_poly=None,cenaz=180,projection='cyl',poi
         if trimmed_polys.npoly>0:
             azel,weight,midpoints=read_poly_list(trimmed_polys,graphicsfilename=graphicsfilename,pointsper2pi=pointsper2pi)
         else:
-            print "WARNING: no polygons in range to be plotted"
+            print("WARNING: no polygons in range to be plotted")
             azel=None
             weight=None
             midpoints=None
@@ -1128,7 +1130,7 @@ def trim_mask(polys,trimmer_poly):
         x=subprocess.check_output(call,shell=True,stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as x:
         os.chdir(pwd)
-        print x.output
+        print(x.output)
         raise
     except:
         os.chdir(pwd)

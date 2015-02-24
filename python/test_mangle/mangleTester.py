@@ -1,6 +1,9 @@
 """
 Helps setup and teardown of mangle tests.
 """
+
+from __future__ import print_function
+
 import numpy as np
 import os
 
@@ -51,8 +54,8 @@ class MangleTester(object):
         # set up the mangle polygon geometries
         self.mng = mangle.Mangle(self.polyfile)
         self.mng_pix = mangle.Mangle(self.polyfile_pix)
-        #print 'Using',self.polyfile,'as the polygon file.'
-        #print 'Using',self.polyfile,'as the pixelized polygon file.'
+        #print('Using',self.polyfile,'as the polygon file.')
+        #print('Using',self.polyfile,'as the pixelized polygon file.')
         
         # TBD: just require that the fits file exist for now.
         # Should eventually have a test that compares .ply and .fits versions.

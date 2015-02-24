@@ -13,6 +13,8 @@ load with:
     nopix = pstats.Stats('nopix.profile')
     nopix.strip_dirs().sort_stats('time').print_stats()
 """
+
+from __future__ import print_function
 import mangle
 import numpy as np
 import cProfile
@@ -33,7 +35,7 @@ def prof_mangle_pix(points):
     """Profile pixelized mangle."""
     #mng = mangle.Mangle('../../geometry/centerpost_mask.ply')
     mng = mangle.Mangle('../../geometry/badfield_mask_unphot-ugriz_pix.ply')
-    print mng.pixelization
+    print(mng.pixelization)
     prof = cProfile.Profile()
     prof.runcall(mng.get_polyids,points.RA,points.DEC)
     return prof

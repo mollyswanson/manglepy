@@ -55,11 +55,19 @@ Requires numpy > 1.0, and pyfits > 3.0.4 for loading fits files.
 # 13-Aug-2012 mecs: Added append, rotate, and generate_shifted_copies functions
 # 05-Jun-2013 jkp: removed implicit matplotlib dependency, by commenting out graphmask stuff.
 
+from __future__ import print_function
+
 import os
 import re
 import string
 import copy
-from itertools import izip
+
+try:
+    # Python 2.x
+    from itertools import izip
+except ImportError:
+    # Python 3.x
+    izip = zip
 
 import time
 
@@ -71,9 +79,9 @@ try:
     #raise ImportError # uncomment this to force pure-python code
     import mangle_utils
 except ImportError as e:
-    print "Error, could not import mangle_utils:",e
-    print "Mangle routines will still function, but be slower."
-    print "Check that you have built mangle_utils.so (see README.txt)."
+    print("Error, could not import mangle_utils:",e)
+    print("Mangle routines will still function, but be slower.")
+    print("Check that you have built mangle_utils.so (see README.txt).")
     useUtils = False
 else:
     useUtils = True
@@ -87,12 +95,12 @@ try:
     import longdouble_utils
 except ImportError as e:
     uselongdoubles=False
-    print "Error, could not import longdouble_utils:",e
-    print "Mangle routines will use double precision for storing caps."
-    print "To use longdouble precision (compatible with real*10 version of mangle), install mpmath:"
-    print "http://code.google.com/p/mpmath/"
-    print "and longdouble_utils:"
-    print "[add link to longdouble_utils on github]"
+    print("Error, could not import longdouble_utils:",e)
+    print("Mangle routines will use double precision for storing caps.")
+    print("To use longdouble precision (compatible with real*10 version of mangle), install mpmath:")
+    print("http://code.google.com/p/mpmath/")
+    print("and longdouble_utils:")
+    print("https://github.com/mollyswanson/longdouble_utils")
     twopi = 2.*pi
 else:
     uselongdoubles = True
@@ -988,12 +996,12 @@ class Mangle:
                     self.balkanized = True
             #print warning if the line doesn't match any of the header keywords
             else:
-                print "WARNING: line \""+line+"\" in "+filename+" ignored."
+                print("WARNING: line \""+line+"\" in "+filename+" ignored.")
             #read next line
             line = ff.readline()
                 
         if self.npoly is None:
-            raise RuntimeError,"Did not find polygon count line \"n polygons\" in header of %s"%filename
+            raise RuntimeError("Did not find polygon count line \"n polygons\" in header of %s"%filename)
         #if a value for real is given in the keyword args, force it to override what's in the file
         if real is not None:
             self.real=real
@@ -1003,7 +1011,7 @@ class Mangle:
         elif self.real==8:
             self.uselongdoubles=False
         else:
-            raise RuntimeError,"bad value for real: %d.  Should be real=8 to use doubles, real=10 to use long doubles."%self.real
+            raise RuntimeError("bad value for real: %d.  Should be real=8 to use doubles, real=10 to use long doubles."%self.real)
         if self.uselongdoubles:
             floattype=np.longdouble
             self.real=10
@@ -1106,10 +1114,10 @@ class Mangle:
                             #this can read a file with a variable number of floats on each line
                             data=array([array([float(x) for x in string.split(line)]) for line in open(f,'r')])
                         except:
-                            print 'WARNING: could not read column from file '+f
+                            print('WARNING: could not read column from file '+f)
                             continue                            
                 if len(data)!=self.npoly:
-                    print 'number of lines in '+f+' does not match number of polygons in '+self.filename
+                    print('number of lines in '+f+' does not match number of polygons in '+self.filename)
                     continue
                 name=string.split(f,'.')[-1]
                 self.add_column(name,data)
@@ -1204,7 +1212,7 @@ class Mangle:
         elif self.real==8:
             self.uselongdoubles=False
         else:
-            raise RuntimeError,"bad value for real: %d.  Should be real=8 to use doubles, real=10 to use long doubles."%self.real
+            raise RuntimeError("bad value for real: %d.  Should be real=8 to use doubles, real=10 to use long doubles."%self.real)
         if self.uselongdoubles:
             floattype=np.longdouble
             self.real=10
@@ -1528,7 +1536,7 @@ class Mangle:
             self.filename == None
         else:
             if not os.path.exists(filename):
-                raise IOError,"Can not find %s"%filename
+                raise IOError("Can not find %s"%filename)
             self.filename = filename # useful to keep this around.
             if (filename[-4:] == '.ply') | (filename[-4:] == '.pol'):
                 self.read_ply_file(filename,read_extra_columns=read_extra_columns,real=real)
@@ -1537,14 +1545,14 @@ class Mangle:
             elif filename[-8:] == '.fits.gz':
                 self.read_fits_file(filename,real=real)
             else:
-                raise IOError,"Unknown file extension for %s"%filename
+                raise IOError("Unknown file extension for %s"%filename)
 
         if self.pixelization:
             self.pixel_dict = self._create_pixel_dict()
 
         if len(self.polylist) != self.npoly:
-            print "Got %d polygons, expecting %d."%\
-              (len(self.polylist),self.npoly)
+            print("Got %d polygons, expecting %d."%\
+              (len(self.polylist),self.npoly))
         if keep_ids == True:
             if 'ids' not in self.names:
                 self.add_column('ids',self.polyids)
@@ -1559,17 +1567,17 @@ class Mangle:
                     if i != polyid:
                         badcounter += 1
                 if badcounter > 0:
-                    print "WARNING!!!!"
-                    print "Found",badcounter,"polygons out of order."
-                    print "Reordering polygons so that polyid=index"
+                    print("WARNING!!!!")
+                    print("Found",badcounter,"polygons out of order.")
+                    print("Reordering polygons so that polyid=index")
                     self.sortpolys()
                     badcounter = 0
             else:
-                print "WARNING!!!!"
-                print "Range of polygon ids in input is (",min(self.polyids),",",max(self.polyids),"), not ( 0 ,",self.npoly-1,")"
-                print "Forcing 'polyids' attribute to be 0 to npoly-1 and saving ids from input as 'id' attribute"
-                print "To do this automatically, use 'keep_ids=True' in the mangle.Mangle constructor."
-                print "To write polygon file retaining the input ids, use 'keep_ids=True' in writeply()."
+                print("WARNING!!!!")
+                print("Range of polygon ids in input is (",min(self.polyids),",",max(self.polyids),"), not ( 0 ,",self.npoly-1,")")
+                print("Forcing 'polyids' attribute to be 0 to npoly-1 and saving ids from input as 'id' attribute")
+                print("To do this automatically, use 'keep_ids=True' in the mangle.Mangle constructor.")
+                print("To write polygon file retaining the input ids, use 'keep_ids=True' in writeply().")
                 self.add_column('ids',self.polyids)
                 self.polyids=arange(0,self.npoly,dtype=int)
     #...
@@ -1586,7 +1594,7 @@ class Mangle:
                 pixel_dict[pix] = []
             pixel_dict[pix].append(i)
         end = time.time()
-        #print "!!!pixel_dict creation time:",end-start
+        #print("!!!pixel_dict creation time:",end-start)
         return pixel_dict
      #...
 #...
