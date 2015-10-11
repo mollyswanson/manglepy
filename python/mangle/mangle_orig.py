@@ -19,7 +19,6 @@ from __future__ import print_function
 
 import os
 import re
-import string
 import math as M
 
 
@@ -223,7 +222,7 @@ class Mangle:
                 polyg= [ipoly,weight,area]
                 for i in range(ncap):
                     line = ff.readline()
-                    cap  = [float(x) for x in string.split(line)]
+                    cap  = [float(x) for x in line.split()]
                     polyg.append(cap)
                 self.polylist.append(polyg)
                 ss=None
