@@ -59,7 +59,6 @@ from __future__ import print_function
 
 import os
 import re
-import string
 import copy
 
 try:
@@ -656,12 +655,12 @@ class Mangle:
         # additional column files will have number of rows equal to the number of polygons 
         # this allows alternate weights and extra information about the polygons that are stored in a fits file to be written in ascii format        
         if write_extra_columns:
-            base_filename=string.split(filename,'.')[0]
+            base_filename=filename.split('.')[0]
             # if column to weight by is provided, e.g., weights='obstime', check to see if base filename ends
             # in _obstime and strip it off if it does before generating extra column filenames 
             if weight is not None:
-                if weight==string.split(base_filename,'_')[-1]:
-                    base_filename='_'.join(string.split(base_filename,'_')[:-1])
+                if weight==base_filename.split('_')[-1]:
+                    base_filename='_'.join(base_filename.split('_')[:-1])
             for name in self.names:
                 asciiformat=self.metadata[name]['asciiformat']
                 if asciiformat is not None:
@@ -1070,9 +1069,9 @@ class Mangle:
                 for i in range(ncap):
                     line = ff.readline()
                     if self.uselongdoubles:
-                        cap = [longdouble_utils.string2longdouble(x) for x in string.split(line)]
+                        cap = [longdouble_utils.string2longdouble(x) for x in line.split()]
                     else:
-                        cap  = [float(x) for x in string.split(line)]
+                        cap  = [float(x) for x in line.split()]
                     self.polylist[counter][i] = cap
                 ss = None
                 counter += 1
@@ -1089,15 +1088,15 @@ class Mangle:
         # this allows alternate weights and extra information about the polygons that are stored in a fits file to be written in ascii format      
         if read_extra_columns:
             #grab base name of file, e.g., poly.pol will yield base_filename=poly
-            base_filename=string.split(self.filename,'.')[0]
+            base_filename= (self.filename).split('.')[0]
             #get list of files that satisfy base_filename.* 
             files=glob.glob(base_filename+'.*')
             #remove any files that are clearly not meant to be extra column files from the list - anything that ends in .pol,.ply,.fits,.list,.list.weight, or .eps
             files=[f for f in files if (f[-4:] != '.ply') & (f[-4:] != '.pol') & (f[-5:] != '.fits') & (f[-5:] != '.list') & (f[-5:] != '.eps') &  (f[-12:] != '.list.weight')]
             #if that didn't find any files to read in, try stripping off everything after the final underscore for the basename, so poly_obstime.pol yields base_filename=poly
             if len(files)==0:
-                weights_tag=string.split(base_filename,'_')[-1] 
-                base_filename='_'.join(string.split(base_filename,'_')[:-1])
+                weights_tag= base_filename.split('_')[-1] 
+                base_filename='_'.join(base_filename.split('_')[:-1])
                 files=glob.glob(base_filename+'.*')
                 files=[f for f in files if (f[-4:] != '.ply') & (f[-4:] != '.pol') & (f[-5:] != '.fits') & (f[-5:] != '.list') & (f[-5:] != '.eps') &  (f[-12:] != '.list.weight')]
             #loop through files
@@ -1108,18 +1107,18 @@ class Mangle:
                 except:
                     try:
                         #this can read a file that has a variable number of integers on each line - e.g., the output of the 'polyid' mangle function
-                        data=array([array([int(x) for x in string.split(line)]) for line in open(f,'r')])                        
+                        data=array([array([int(x) for x in line.split()]) for line in open(f,'r')])                        
                     except:
                         try:
                             #this can read a file with a variable number of floats on each line
-                            data=array([array([float(x) for x in string.split(line)]) for line in open(f,'r')])
+                            data=array([array([float(x) for x in line.split()]) for line in open(f,'r')])
                         except:
                             print('WARNING: could not read column from file '+f)
                             continue                            
                 if len(data)!=self.npoly:
                     print('number of lines in '+f+' does not match number of polygons in '+self.filename)
                     continue
-                name=string.split(f,'.')[-1]
+                name=f.split('.')[-1]
                 self.add_column(name,data)
                 
     #...
@@ -1280,7 +1279,7 @@ class Mangle:
                         col = data[name]
                 else:
                     col = data[name]
-                self.add_column(string.lower(name), col, format=info['format'][i], asciiformat=None, unit=info['unit'][i], null=info['null'][i], bscale=info['bscale'][i], bzero=info['bzero'][i], disp=info['disp'][i], start=info['start'][i], dim=info['dim'][i])
+                self.add_column(name.lower(), col, format=info['format'][i], asciiformat=None, unit=info['unit'][i], null=info['null'][i], bscale=info['bscale'][i], bzero=info['bzero'][i], disp=info['disp'][i], start=info['start'][i], dim=info['dim'][i])
 
 
     def add_column(self,name, data, format=None, asciiformat=None, unit=None, null=None, bscale=None, bzero=None, disp=None, start=None, dim=None):
@@ -1386,7 +1385,7 @@ class Mangle:
                                     'disp':disp,
                                     'format':format,
                                     'asciiformat':asciiformat,
-                                    'name':string.upper(name),
+                                    'name':name.upper(),
                                     'null':null,
                                     'start':start,
                                     'unit':unit}})
